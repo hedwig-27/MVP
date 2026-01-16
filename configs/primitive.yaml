@@ -1,0 +1,82 @@
+model:
+  num_primitives: 6
+  primitive:
+    type: fno
+    modes: 8
+    width: 32
+    depth: 3
+    fc_dim: 64
+    kernel_size: 5
+  router:
+    hidden_dim: 64
+    top_k: 2
+    stats: [mean, std, min, max]
+    fft_bins: 0
+    pde_param_dim: 3
+    dataset_embed_dim: 8
+
+data:
+  seed: 0
+  n_res: 128
+  timesteps: 41
+  time_downsample: 5
+  include_grid: true
+  normalize: false
+  n_train: 8000
+  n_val: 1000
+  n_test: 1000
+  batch_size: 32
+  num_workers: 4
+  sample_ratio: 50
+  steps_per_epoch: 2000
+  datasets:
+    - name: adv_beta0.1
+      path: datasets/1D_Advection_Sols_beta0.1.hdf5
+      params: {beta: 0.1, nu: 0.0, rho: 0.0}
+      weight: 1.0
+    - name: adv_beta0.4
+      path: datasets/1D_Advection_Sols_beta0.4.hdf5
+      params: {beta: 0.4, nu: 0.0, rho: 0.0}
+      weight: 1.0
+    - name: adv_beta1.0
+      path: datasets/1D_Advection_Sols_beta1.0.hdf5
+      params: {beta: 1.0, nu: 0.0, rho: 0.0}
+      weight: 1.0
+    - name: burgers_nu0.001
+      path: datasets/1D_Burgers_Sols_Nu0.001.hdf5
+      params: {beta: 0.0, nu: 0.001, rho: 0.0}
+      weight: 1.0
+    - name: burgers_nu0.01
+      path: datasets/1D_Burgers_Sols_Nu0.01.hdf5
+      params: {beta: 0.0, nu: 0.01, rho: 0.0}
+      weight: 1.0
+    - name: burgers_nu0.1
+      path: datasets/1D_Burgers_Sols_Nu0.1.hdf5
+      params: {beta: 0.0, nu: 0.1, rho: 0.0}
+      weight: 1.0
+    - name: reacdiff_rho1
+      path: datasets/ReacDiff_Nu0.5_Rho1.0.hdf5
+      params: {beta: 0.0, nu: 0.5, rho: 1.0}
+      weight: 1.0
+    - name: reacdiff_rho5
+      path: datasets/ReacDiff_Nu0.5_Rho5.0.hdf5
+      params: {beta: 0.0, nu: 0.5, rho: 5.0}
+      weight: 1.0
+    - name: diff_sorp
+      path: datasets/1D_diff-sorp_NA_NA.h5
+      params: {beta: 0.0, nu: 0.0, rho: 0.0}
+      weight: 1.0
+  eval_datasets:
+    - name: burgers_nu1
+      path: datasets/1D_Burgers_Sols_Nu1.0.hdf5
+      params: {beta: 0.0, nu: 1.0, rho: 0.0}
+    - name: reacdiff_rho10
+      path: datasets/ReacDiff_Nu0.5_Rho10.0.hdf5
+      params: {beta: 0.0, nu: 0.5, rho: 10.0}
+
+training:
+  epochs: 50
+  learning_rate: 0.001
+  entropy_weight: 0.001
+  diversity_weight: 0.001
+  output_model: outputs/latest_primitive/primitive_model.pt

@@ -1,0 +1,112 @@
+2026-01-15 18:46:26,159 | INFO | Log file: outputs/primitive_20260115_184626/run.log
+2026-01-15 18:46:30,850 | INFO | Dataset[0] adv_beta0.1 params=[0.10000000149011612, 0.0, 0.0] train_pairs=6400 val_pairs=800 test_pairs=800 weight=1.0
+2026-01-15 18:46:30,850 | INFO | Dataset[1] adv_beta0.4 params=[0.4000000059604645, 0.0, 0.0] train_pairs=6400 val_pairs=800 test_pairs=800 weight=1.0
+2026-01-15 18:46:30,850 | INFO | Dataset[2] adv_beta1.0 params=[1.0, 0.0, 0.0] train_pairs=6400 val_pairs=800 test_pairs=800 weight=1.0
+2026-01-15 18:46:30,850 | INFO | Dataset[3] burgers_nu0.001 params=[0.0, 0.0010000000474974513, 0.0] train_pairs=6400 val_pairs=800 test_pairs=800 weight=1.0
+2026-01-15 18:46:30,851 | INFO | Dataset[4] burgers_nu0.01 params=[0.0, 0.009999999776482582, 0.0] train_pairs=6400 val_pairs=800 test_pairs=800 weight=1.0
+2026-01-15 18:46:30,851 | INFO | Dataset[5] burgers_nu0.1 params=[0.0, 0.10000000149011612, 0.0] train_pairs=6400 val_pairs=800 test_pairs=800 weight=1.0
+2026-01-15 18:46:30,851 | INFO | Dataset[6] reacdiff_rho1 params=[0.0, 0.5, 1.0] train_pairs=3200 val_pairs=400 test_pairs=400 weight=1.0
+2026-01-15 18:46:30,851 | INFO | Dataset[7] reacdiff_rho5 params=[0.0, 0.5, 5.0] train_pairs=3200 val_pairs=400 test_pairs=400 weight=1.0
+2026-01-15 18:46:30,851 | INFO | Dataset[8] diff_sorp params=[0.0, 0.0, 0.0] train_pairs=3200 val_pairs=400 test_pairs=400 weight=1.0
+2026-01-15 18:49:05,244 | INFO | Val Loss (adv_beta0.1): 0.005150
+2026-01-15 18:49:06,583 | INFO | Val Loss (adv_beta0.4): 0.009080
+2026-01-15 18:49:08,021 | INFO | Val Loss (adv_beta1.0): 0.026028
+2026-01-15 18:49:09,163 | INFO | Val Loss (burgers_nu0.001): 0.007810
+2026-01-15 18:49:10,508 | INFO | Val Loss (burgers_nu0.01): 0.003947
+2026-01-15 18:49:12,202 | INFO | Val Loss (burgers_nu0.1): 0.001944
+2026-01-15 18:49:13,405 | INFO | Val Loss (reacdiff_rho1): 0.001864
+2026-01-15 18:49:14,426 | INFO | Val Loss (reacdiff_rho5): 0.005569
+2026-01-15 18:49:15,576 | INFO | Val Loss (diff_sorp): 0.002040
+2026-01-15 18:49:15,576 | INFO | [Epoch 1] Train Loss: 0.014954, Val Loss: 0.007789
+2026-01-15 18:51:27,009 | INFO | Val Loss (adv_beta0.1): 0.001489
+2026-01-15 18:51:27,520 | INFO | Val Loss (adv_beta0.4): 0.003243
+2026-01-15 18:51:28,056 | INFO | Val Loss (adv_beta1.0): 0.001276
+2026-01-15 18:51:28,594 | INFO | Val Loss (burgers_nu0.001): 0.004721
+2026-01-15 18:51:29,143 | INFO | Val Loss (burgers_nu0.01): 0.001948
+2026-01-15 18:51:29,680 | INFO | Val Loss (burgers_nu0.1): 0.001213
+2026-01-15 18:51:29,968 | INFO | Val Loss (reacdiff_rho1): 0.000829
+2026-01-15 18:51:30,293 | INFO | Val Loss (reacdiff_rho5): 0.001375
+2026-01-15 18:51:30,563 | INFO | Val Loss (diff_sorp): 0.002033
+2026-01-15 18:51:30,563 | INFO | [Epoch 2] Train Loss: 0.005073, Val Loss: 0.002129
+2026-01-15 18:53:39,740 | INFO | Val Loss (adv_beta0.1): 0.006988
+2026-01-15 18:53:40,287 | INFO | Val Loss (adv_beta0.4): 0.006361
+2026-01-15 18:53:40,869 | INFO | Val Loss (adv_beta1.0): 0.021579
+2026-01-15 18:53:41,384 | INFO | Val Loss (burgers_nu0.001): 0.004962
+2026-01-15 18:53:41,953 | INFO | Val Loss (burgers_nu0.01): 0.001781
+2026-01-15 18:53:42,509 | INFO | Val Loss (burgers_nu0.1): 0.000883
+2026-01-15 18:53:42,805 | INFO | Val Loss (reacdiff_rho1): 0.001077
+2026-01-15 18:53:43,110 | INFO | Val Loss (reacdiff_rho5): 0.000531
+2026-01-15 18:53:43,419 | INFO | Val Loss (diff_sorp): 0.001418
+2026-01-15 18:53:43,419 | INFO | [Epoch 3] Train Loss: 0.003757, Val Loss: 0.005837
+2026-01-15 18:55:54,212 | INFO | Val Loss (adv_beta0.1): 0.001375
+2026-01-15 18:55:54,694 | INFO | Val Loss (adv_beta0.4): 0.004633
+2026-01-15 18:55:55,243 | INFO | Val Loss (adv_beta1.0): 0.082288
+2026-01-15 18:55:55,756 | INFO | Val Loss (burgers_nu0.001): 0.004198
+2026-01-15 18:55:56,272 | INFO | Val Loss (burgers_nu0.01): 0.001699
+2026-01-15 18:55:56,804 | INFO | Val Loss (burgers_nu0.1): 0.001108
+2026-01-15 18:55:57,106 | INFO | Val Loss (reacdiff_rho1): 0.000245
+2026-01-15 18:55:57,387 | INFO | Val Loss (reacdiff_rho5): 0.000273
+2026-01-15 18:55:57,686 | INFO | Val Loss (diff_sorp): 0.001651
+2026-01-15 18:55:57,686 | INFO | [Epoch 4] Train Loss: 0.003150, Val Loss: 0.012755
+2026-01-15 18:58:08,818 | INFO | Val Loss (adv_beta0.1): 0.011074
+2026-01-15 18:58:09,340 | INFO | Val Loss (adv_beta0.4): 0.010147
+2026-01-15 18:58:09,896 | INFO | Val Loss (adv_beta1.0): 0.012098
+2026-01-15 18:58:10,493 | INFO | Val Loss (burgers_nu0.001): 0.006896
+2026-01-15 18:58:10,993 | INFO | Val Loss (burgers_nu0.01): 0.003607
+2026-01-15 18:58:11,516 | INFO | Val Loss (burgers_nu0.1): 0.001223
+2026-01-15 18:58:11,793 | INFO | Val Loss (reacdiff_rho1): 0.000253
+2026-01-15 18:58:12,078 | INFO | Val Loss (reacdiff_rho5): 0.000401
+2026-01-15 18:58:12,396 | INFO | Val Loss (diff_sorp): 0.000881
+2026-01-15 18:58:12,396 | INFO | [Epoch 5] Train Loss: 0.002506, Val Loss: 0.006064
+2026-01-15 18:58:13,849 | INFO | Test Loss (burgers_nu1): 0.005663
+2026-01-15 18:58:15,014 | INFO | Test Loss (reacdiff_rho10): 0.001230
+2026-01-15 18:58:15,016 | INFO | Primitive training complete. Model saved to: outputs/primitive_20260115_184626/primitive_model.pt
+2026-01-15 19:03:22,423 | INFO | Log file: /home/lgz/workspace/MVP/outputs/primitive_20260115_184626/run.log
+2026-01-15 19:03:34,995 | INFO | One-step MSE (adv_beta0.1): 0.001994
+2026-01-15 19:03:36,752 | INFO | One-step MSE (adv_beta0.4): 0.007646
+2026-01-15 19:03:38,579 | INFO | One-step MSE (adv_beta1.0): 0.004824
+2026-01-15 19:03:40,172 | INFO | One-step MSE (burgers_nu0.001): 0.004635
+2026-01-15 19:03:41,966 | INFO | One-step MSE (burgers_nu0.01): 0.001937
+2026-01-15 19:03:44,210 | INFO | One-step MSE (burgers_nu0.1): 0.000904
+2026-01-15 19:03:45,695 | INFO | One-step MSE (reacdiff_rho1): 0.001020
+2026-01-15 19:03:47,228 | INFO | One-step MSE (reacdiff_rho5): 0.001670
+2026-01-15 19:03:48,868 | INFO | One-step MSE (diff_sorp): 0.001988
+2026-01-15 19:03:48,869 | INFO | One-step MSE (avg): 0.003224
+2026-01-15 19:03:48,870 | INFO | Primitive usage saved to /home/lgz/workspace/MVP/outputs/primitive_20260115_184626/primitive_usage.json
+2026-01-15 19:03:55,411 | INFO | Log file: /home/lgz/workspace/MVP/outputs/primitive_20260115_184626/run.log
+2026-01-15 19:04:06,767 | INFO | MSE after 5 steps (adv_beta0.1): 0.054218
+2026-01-15 19:04:06,768 | INFO | MSE after 10 steps (adv_beta0.1): 0.276309
+2026-01-15 19:04:06,768 | INFO | MSE after 20 steps (adv_beta0.1): 0.811092
+2026-01-15 19:04:07,208 | INFO | Rollout error plot saved to /home/lgz/workspace/MVP/outputs/primitive_20260115_184626/rollout_error_adv_beta0.1.png
+2026-01-15 19:04:07,468 | INFO | MSE after 5 steps (adv_beta0.4): 1.262294
+2026-01-15 19:04:07,468 | INFO | MSE after 10 steps (adv_beta0.4): 0.104615
+2026-01-15 19:04:07,468 | INFO | MSE after 20 steps (adv_beta0.4): 0.402949
+2026-01-15 19:04:07,780 | INFO | Rollout error plot saved to /home/lgz/workspace/MVP/outputs/primitive_20260115_184626/rollout_error_adv_beta0.4.png
+2026-01-15 19:04:08,031 | INFO | MSE after 5 steps (adv_beta1.0): 1.153524
+2026-01-15 19:04:08,031 | INFO | MSE after 10 steps (adv_beta1.0): 0.601684
+2026-01-15 19:04:08,031 | INFO | MSE after 20 steps (adv_beta1.0): 2.054479
+2026-01-15 19:04:08,361 | INFO | Rollout error plot saved to /home/lgz/workspace/MVP/outputs/primitive_20260115_184626/rollout_error_adv_beta1.0.png
+2026-01-15 19:04:08,646 | INFO | MSE after 5 steps (burgers_nu0.001): 0.343880
+2026-01-15 19:04:08,646 | INFO | MSE after 10 steps (burgers_nu0.001): 0.690910
+2026-01-15 19:04:08,646 | INFO | MSE after 20 steps (burgers_nu0.001): 1.040186
+2026-01-15 19:04:08,945 | INFO | Rollout error plot saved to /home/lgz/workspace/MVP/outputs/primitive_20260115_184626/rollout_error_burgers_nu0.001.png
+2026-01-15 19:04:09,225 | INFO | MSE after 5 steps (burgers_nu0.01): 0.345303
+2026-01-15 19:04:09,225 | INFO | MSE after 10 steps (burgers_nu0.01): 0.650754
+2026-01-15 19:04:09,225 | INFO | MSE after 20 steps (burgers_nu0.01): 1.003086
+2026-01-15 19:04:09,524 | INFO | Rollout error plot saved to /home/lgz/workspace/MVP/outputs/primitive_20260115_184626/rollout_error_burgers_nu0.01.png
+2026-01-15 19:04:09,816 | INFO | MSE after 5 steps (burgers_nu0.1): 0.388022
+2026-01-15 19:04:09,816 | INFO | MSE after 10 steps (burgers_nu0.1): 0.624694
+2026-01-15 19:04:09,816 | INFO | MSE after 20 steps (burgers_nu0.1): 1.000074
+2026-01-15 19:04:10,133 | INFO | Rollout error plot saved to /home/lgz/workspace/MVP/outputs/primitive_20260115_184626/rollout_error_burgers_nu0.1.png
+2026-01-15 19:04:10,414 | INFO | MSE after 5 steps (reacdiff_rho1): 0.233264
+2026-01-15 19:04:10,414 | INFO | MSE after 10 steps (reacdiff_rho1): 0.444405
+2026-01-15 19:04:10,415 | INFO | MSE after 20 steps (reacdiff_rho1): 1.047472
+2026-01-15 19:04:10,675 | INFO | Rollout error plot saved to /home/lgz/workspace/MVP/outputs/primitive_20260115_184626/rollout_error_reacdiff_rho1.png
+2026-01-15 19:04:10,943 | INFO | MSE after 5 steps (reacdiff_rho5): 0.262250
+2026-01-15 19:04:10,943 | INFO | MSE after 10 steps (reacdiff_rho5): 0.452717
+2026-01-15 19:04:10,943 | INFO | MSE after 20 steps (reacdiff_rho5): 0.861433
+2026-01-15 19:04:11,237 | INFO | Rollout error plot saved to /home/lgz/workspace/MVP/outputs/primitive_20260115_184626/rollout_error_reacdiff_rho5.png
+2026-01-15 19:04:11,495 | INFO | MSE after 5 steps (diff_sorp): 0.104059
+2026-01-15 19:04:11,495 | INFO | MSE after 10 steps (diff_sorp): 0.173420
+2026-01-15 19:04:11,495 | INFO | MSE after 20 steps (diff_sorp): 0.304495
+2026-01-15 19:04:11,780 | INFO | Rollout error plot saved to /home/lgz/workspace/MVP/outputs/primitive_20260115_184626/rollout_error_diff_sorp.png

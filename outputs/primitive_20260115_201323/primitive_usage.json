@@ -1,0 +1,110 @@
+[
+  {
+    "dataset": "adv_beta0.1",
+    "counts": [
+      0,
+      20000,
+      0,
+      0,
+      4400,
+      15600
+    ],
+    "total": 40000
+  },
+  {
+    "dataset": "adv_beta0.4",
+    "counts": [
+      0,
+      20000,
+      0,
+      0,
+      18040,
+      1960
+    ],
+    "total": 40000
+  },
+  {
+    "dataset": "adv_beta1.0",
+    "counts": [
+      0,
+      0,
+      19240,
+      0,
+      20000,
+      760
+    ],
+    "total": 40000
+  },
+  {
+    "dataset": "burgers_nu0.001",
+    "counts": [
+      0,
+      6916,
+      0,
+      0,
+      13084,
+      20000
+    ],
+    "total": 40000
+  },
+  {
+    "dataset": "burgers_nu0.01",
+    "counts": [
+      0,
+      66,
+      0,
+      0,
+      19934,
+      20000
+    ],
+    "total": 40000
+  },
+  {
+    "dataset": "burgers_nu0.1",
+    "counts": [
+      0,
+      0,
+      906,
+      0,
+      19094,
+      20000
+    ],
+    "total": 40000
+  },
+  {
+    "dataset": "reacdiff_rho1",
+    "counts": [
+      0,
+      500,
+      0,
+      0,
+      9500,
+      10000
+    ],
+    "total": 20000
+  },
+  {
+    "dataset": "reacdiff_rho5",
+    "counts": [
+      0,
+      0,
+      503,
+      9497,
+      0,
+      10000
+    ],
+    "total": 20000
+  },
+  {
+    "dataset": "diff_sorp",
+    "counts": [
+      0,
+      10000,
+      0,
+      0,
+      9500,
+      500
+    ],
+    "total": 20000
+  }
+]

@@ -35,22 +35,29 @@ def _read_log(run_dir):
     return log_path.read_text()
 
 
-def _parse_metric(log_text, label):
-    pattern = re.compile(rf"{re.escape(label)} \(([^)]+)\): ([0-9.]+)")
-    results = {}
-    for line in log_text.splitlines():
-        match = pattern.search(line)
-        if not match:
-            continue
-        name = match.group(1)
-        if name == "avg":
-            continue
-        results[name] = float(match.group(2))
-    return results
+def _parse_metric(log_text, labels):
+    if isinstance(labels, str):
+        labels = [labels]
+    for label in labels:
+        pattern = re.compile(rf"{re.escape(label)} \(([^)]+)\): ([0-9.]+)")
+        results = {}
+        for line in log_text.splitlines():
+            match = pattern.search(line)
+            if not match:
+                continue
+            name = match.group(1)
+            if name == "avg":
+                continue
+            results[name] = float(match.group(2))
+        if results:
+            return results
+    return {}
 
 
 def _parse_epoch_curve(log_text):
-    pattern = re.compile(r"\[Epoch (\d+)\] Train Loss: ([0-9.]+), Val Loss: ([0-9.]+)")
+    pattern = re.compile(
+        r"\[Epoch (\d+)\] Train (?:Loss|NRMSE): ([0-9.]+), Val (?:Loss|NRMSE): ([0-9.]+)"
+    )
     epochs = []
     train = []
     val = []
@@ -65,7 +72,7 @@ def _parse_epoch_curve(log_text):
 
 
 def _parse_val_by_epoch(log_text):
-    val_re = re.compile(r"Val Loss \(([^)]+)\): ([0-9.]+)")
+    val_re = re.compile(r"Val (?:Loss|NRMSE) \(([^)]+)\): ([0-9.]+)")
     epoch_re = re.compile(r"\[Epoch (\d+)\]")
     series = {}
     buffer = {}
@@ -86,7 +93,7 @@ def _parse_val_by_epoch(log_text):
 
 
 def _parse_rollout(log_text):
-    pattern = re.compile(r"MSE after (\d+) steps \(([^)]+)\): ([0-9.]+)")
+    pattern = re.compile(r"(?:MSE|NRMSE) after (\d+) steps \(([^)]+)\): ([0-9.]+)")
     results = {}
     for line in log_text.splitlines():
         match = pattern.search(line)
@@ -150,8 +157,8 @@ def _plot_train_val_curves(log_a, log_b, out_path, label_a="primitive", label_b=
         plt.plot(epochs_a, train_a, marker="o", label=label_a)
     if epochs_b:
         plt.plot(epochs_b, train_b, marker="o", label=label_b)
-    plt.ylabel("Train MSE")
-    plt.title("Train Loss vs Epoch")
+    plt.ylabel("Train NRMSE")
+    plt.title("Train NRMSE vs Epoch")
     plt.legend()
     plt.subplot(2, 1, 2)
     if epochs_a:
@@ -159,8 +166,8 @@ def _plot_train_val_curves(log_a, log_b, out_path, label_a="primitive", label_b=
     if epochs_b:
         plt.plot(epochs_b, val_b, marker="o", label=label_b)
     plt.xlabel("Epoch")
-    plt.ylabel("Val MSE")
-    plt.title("Val Loss vs Epoch")
+    plt.ylabel("Val NRMSE")
+    plt.title("Val NRMSE vs Epoch")
     plt.legend()
     plt.tight_layout()
     plt.savefig(out_path)
@@ -181,14 +188,14 @@ def _plot_val_curves_by_dataset(series_a, series_b, out_dir, label_a="primitive"
         if not epochs_a and not epochs_b:
             continue
         safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", name)
-        out_path = out_dir / f"compare_val_curve_{safe}.png"
+        out_path = out_dir / f"val_epoch_{safe}.png"
         _plot_curve_compare(
             epochs_a,
             vals_a,
             epochs_b,
             vals_b,
-            f"Val Loss vs Epoch ({name})",
-            "Val MSE",
+            f"Val NRMSE vs Epoch ({name})",
+            "Val NRMSE",
             out_path,
             label_a=label_a,
             label_b=label_b,
@@ -250,65 +257,70 @@ def main():
         print(f"No runs found under {OUTPUTS}. Run training first or pass --primitive/--fno.")
         return
     if args.out:
-        out_dir = Path(args.out)
+        plot_root = Path(args.out)
     else:
-        out_dir = Path(prim_dir or fno_dir) / "plots"
-    out_dir = out_dir.resolve()
-    out_dir.mkdir(parents=True, exist_ok=True)
+        plot_root = Path(prim_dir or fno_dir) / "plots"
+    plot_root = plot_root.resolve()
+    overview_dir = plot_root / "overview"
+    usage_dir = plot_root / "usage"
+    val_dir = plot_root / "curves" / "val"
+    overview_dir.mkdir(parents=True, exist_ok=True)
+    usage_dir.mkdir(parents=True, exist_ok=True)
+    val_dir.mkdir(parents=True, exist_ok=True)
 
     prim_log = _read_log(prim_dir)
     fno_log = _read_log(fno_dir)
 
-    prim_val = _parse_metric(prim_log, "Val Loss")
-    fno_val = _parse_metric(fno_log, "Val Loss")
+    prim_val = _parse_metric(prim_log, ["Val NRMSE", "Val Loss"])
+    fno_val = _parse_metric(fno_log, ["Val NRMSE", "Val Loss"])
     _plot_compare(
         prim_val,
         fno_val,
-        "Validation Loss (last epoch)",
-        "MSE",
-        out_dir / "compare_val_loss.png",
+        "Validation NRMSE (last epoch)",
+        "NRMSE",
+        overview_dir / "val_last_compare.png",
     )
 
-    prim_test = _parse_metric(prim_log, "Test Loss")
-    fno_test = _parse_metric(fno_log, "Test Loss")
+    prim_test = _parse_metric(prim_log, ["Test NRMSE", "Test Loss"])
+    fno_test = _parse_metric(fno_log, ["Test NRMSE", "Test Loss"])
     _plot_compare(
         prim_test,
         fno_test,
-        "OOD Test Loss",
-        "MSE",
-        out_dir / "compare_ood_test_loss.png",
+        "OOD Test NRMSE",
+        "NRMSE",
+        overview_dir / "ood_compare.png",
     )
 
-    prim_mse = _parse_metric(prim_log, "One-step MSE")
-    fno_mse = _parse_metric(fno_log, "One-step MSE")
+    prim_mse = _parse_metric(prim_log, ["One-step NRMSE", "One-step MSE"])
+    fno_mse = _parse_metric(fno_log, ["One-step NRMSE", "One-step MSE"])
     if prim_mse and fno_mse:
         _plot_compare(
             prim_mse,
             fno_mse,
-            "One-step MSE (in-distribution)",
-            "MSE",
-            out_dir / "compare_onestep_mse.png",
+            "One-step NRMSE (in-distribution)",
+            "NRMSE",
+            overview_dir / "onestep_compare.png",
         )
     elif prim_mse:
         _plot_single(
             prim_mse,
-            "One-step MSE (primitive)",
-            "MSE",
-            out_dir / "primitive_onestep_mse.png",
+            "One-step NRMSE (primitive)",
+            "NRMSE",
+            overview_dir / "onestep_primitive.png",
         )
 
     if prim_dir:
-        _plot_usage(Path(prim_dir) / "primitive_usage.json", out_dir / "primitive_usage.png")
+        _plot_usage(Path(prim_dir) / "primitive_usage.json", usage_dir / "primitive_usage.png")
 
     _plot_train_val_curves(
         prim_log,
         fno_log,
-        out_dir / "compare_train_val_curve.png",
+        overview_dir / "train_val_compare.png",
     )
 
     series_prim = _parse_val_by_epoch(prim_log)
     series_fno = _parse_val_by_epoch(fno_log)
-    _plot_val_curves_by_dataset(series_prim, series_fno, out_dir)
+    _plot_val_curves_by_dataset(series_prim, series_fno, val_dir)
 
     rollout_prim = _parse_rollout(prim_log)
     rollout_fno = _parse_rollout(fno_log)
@@ -316,12 +328,12 @@ def main():
         _plot_compare(
             rollout_prim[step],
             rollout_fno[step],
-            f"Rollout MSE at {step} steps",
-            "MSE",
-            out_dir / f"compare_rollout_{step}.png",
+            f"Rollout NRMSE at {step} steps",
+            "NRMSE",
+            overview_dir / f"rollout_step_{step}_compare.png",
         )
 
-    print(f"Plots saved to: {out_dir}")
+    print(f"Plots saved to: {plot_root}")
 
 
 if __name__ == "__main__":

@@ -17,6 +17,12 @@ from models.fno1d import FNO1D
 from utils import create_run_dir, set_latest_link, setup_logger
 
 
+def _nrmse(pred, target, eps=1e-8):
+    mse = torch.mean((pred - target) ** 2)
+    denom = torch.sqrt(torch.mean(target ** 2)) + eps
+    return torch.sqrt(mse) / denom
+
+
 def _unpack_batch(batch, device):
     if len(batch) >= 4 and isinstance(batch[2], dict):
         x, y, _, _ = batch[0], batch[1], batch[2], batch[3]
@@ -75,7 +81,7 @@ def main(config_path):
     model = model.cuda() if torch.cuda.is_available() else model
     # Optimizer and loss
     opt = optim.Adam(model.parameters(), lr=config["training"]["learning_rate"])
-    criterion = nn.MSELoss()
+    criterion = _nrmse
     epochs = config["training"]["epochs"]
 
     output_model = run_dir / Path(config["training"]["output_model"]).name
@@ -113,7 +119,7 @@ def main(config_path):
                         ds_loss += loss.item()
                         val_pbar.set_postfix(loss=loss.item())
                     ds_loss /= max(len(loader), 1)
-                    logger.info("Val Loss (%s): %.6f", name, ds_loss)
+            logger.info("Val NRMSE (%s): %.6f", name, ds_loss)
                     val_loss += ds_loss * len(loader)
                     total_batches += len(loader)
                 if total_batches > 0:
@@ -122,7 +128,7 @@ def main(config_path):
             val_loss = train_loss
 
         # Logging
-        logger.info("[Epoch %d] Train Loss: %.6f, Val Loss: %.6f", epoch, train_loss, val_loss)
+        logger.info("[Epoch %d] Train NRMSE: %.6f, Val NRMSE: %.6f", epoch, train_loss, val_loss)
 
         # Save best model
         if val_loss < best_val_loss:
@@ -146,12 +152,12 @@ def main(config_path):
                     ds_loss += loss.item()
                     test_pbar.set_postfix(loss=loss.item())
                 ds_loss /= max(len(loader), 1)
-                logger.info("Test Loss (%s): %.6f", name, ds_loss)
+                logger.info("Test NRMSE (%s): %.6f", name, ds_loss)
                 test_loss += ds_loss * len(loader)
                 total_batches += len(loader)
             if total_batches > 0:
                 test_loss /= total_batches
-            logger.info("Test Loss (avg): %.6f", test_loss)
+            logger.info("Test NRMSE (avg): %.6f", test_loss)
     # Save metrics
     metrics = {
         "train_loss": train_loss,

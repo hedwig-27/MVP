@@ -1,3 +1,5 @@
 __pycache__
 datasets/
 *.pt
+latest_fno
+latest_primitive

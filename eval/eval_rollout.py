@@ -17,6 +17,12 @@ from dataloader.multi_loader import build_eval_loaders
 from utils import setup_logger
 
 
+def _nrmse(pred, target, eps=1e-8):
+    mse = F.mse_loss(pred, target)
+    denom = torch.sqrt(torch.mean(target ** 2)) + eps
+    return torch.sqrt(mse) / denom
+
+
 def _resolve_run_dir(model_path):
     if model_path:
         try:
@@ -63,6 +69,34 @@ if __name__ == "__main__":
         logger.info("Test split not available in config.")
         sys.exit(1)
 
+    plot_root = run_dir / "plots"
+    plot_dir = plot_root / "curves" / "rollout"
+    plot_dir.mkdir(parents=True, exist_ok=True)
+    legacy_dirs = [
+        run_dir / "rollout_plots",
+        plot_root / "rollout_plots",
+        plot_root / "rollout_curves",
+        plot_root / "curves" / "rollout_curves",
+    ]
+    for legacy_dir in legacy_dirs:
+        if legacy_dir.exists():
+            for path in legacy_dir.glob("rollout_error_*.png"):
+                safe = path.name.replace("rollout_error_", "rollout_curve_")
+                target = plot_dir / safe
+                if not target.exists():
+                    try:
+                        path.rename(target)
+                    except OSError:
+                        pass
+    for path in run_dir.glob("rollout_error_*.png"):
+        safe = path.name.replace("rollout_error_", "rollout_curve_")
+        target = plot_dir / safe
+        if not target.exists():
+            try:
+                path.rename(target)
+            except OSError:
+                pass
+
     for name, loader, _, _ in loaders:
         dataset = loader.dataset
         seq = dataset.get_sequence(args.sample_idx)  # (T, X, C)
@@ -87,24 +121,24 @@ if __name__ == "__main__":
                     pred = torch.cat([pred, grid], dim=-1)
             gt = torch.from_numpy(seq[step].astype("float32")).unsqueeze(0).to(pred.device)
             pred_field = pred[..., :C]
-            mse = F.mse_loss(pred_field, gt).item()
-            errors.append(mse)
+            nrmse = _nrmse(pred_field, gt).item()
+            errors.append(nrmse)
 
         if max_steps >= 5:
-            logger.info("MSE after 5 steps (%s): %.6f", name, errors[4])
+            logger.info("NRMSE after 5 steps (%s): %.6f", name, errors[4])
         if max_steps >= 10:
-            logger.info("MSE after 10 steps (%s): %.6f", name, errors[9])
+            logger.info("NRMSE after 10 steps (%s): %.6f", name, errors[9])
         if max_steps >= 20:
-            logger.info("MSE after 20 steps (%s): %.6f", name, errors[19])
+            logger.info("NRMSE after 20 steps (%s): %.6f", name, errors[19])
 
         plt.figure()
         plt.plot(range(1, max_steps + 1), errors, marker="o")
-        plt.title(f"Rollout Error vs Step ({name})")
+        plt.title(f"Rollout NRMSE vs Step ({name})")
         plt.xlabel("Prediction Step")
-        plt.ylabel("MSE")
+        plt.ylabel("NRMSE")
         plt.grid(True)
         plt.tight_layout()
         safe_name = name.replace("/", "_")
-        output_path = run_dir / f"rollout_error_{safe_name}.png"
+        output_path = plot_dir / f"rollout_curve_{safe_name}.png"
         plt.savefig(output_path)
-        logger.info("Rollout error plot saved to %s", output_path)
+        logger.info("Rollout curve plot saved to %s", output_path)

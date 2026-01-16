@@ -16,6 +16,12 @@ from dataloader.multi_loader import build_eval_loaders
 from utils import setup_logger
 
 
+def _nrmse(pred, target, eps=1e-8):
+    mse = torch.mean((pred - target) ** 2)
+    denom = torch.sqrt(torch.mean(target ** 2)) + eps
+    return torch.sqrt(mse) / denom
+
+
 def _unpack_batch(batch, device):
     if len(batch) >= 4 and isinstance(batch[2], dict):
         x, y, cond, _ = batch[0], batch[1], batch[2], batch[3]
@@ -66,7 +72,7 @@ def evaluate_model(model_path, data_conf, split, logger, run_dir):
     model = model.cuda() if torch.cuda.is_available() else model
     model.eval()
     loaders = build_eval_loaders(data_conf, split=split)
-    criterion = torch.nn.MSELoss()
+    criterion = _nrmse
     all_usage = []
     total_loss = 0.0
     total_batches = 0
@@ -91,7 +97,7 @@ def evaluate_model(model_path, data_conf, split, logger, run_dir):
                     flat = topk_idx.reshape(-1).cpu()
                     usage_counts += torch.bincount(flat, minlength=usage_counts.numel())
         ds_loss /= max(len(loader), 1)
-        logger.info("One-step MSE (%s): %.6f", name, ds_loss)
+        logger.info("One-step NRMSE (%s): %.6f", name, ds_loss)
         total_loss += ds_loss * len(loader)
         total_batches += len(loader)
         if usage_counts is not None:
@@ -100,7 +106,7 @@ def evaluate_model(model_path, data_conf, split, logger, run_dir):
             )
 
     avg_loss = total_loss / max(total_batches, 1)
-    logger.info("One-step MSE (avg): %.6f", avg_loss)
+    logger.info("One-step NRMSE (avg): %.6f", avg_loss)
     if all_usage:
         with open(run_dir / "primitive_usage.json", "w") as f:
             json.dump(all_usage, f, indent=2)

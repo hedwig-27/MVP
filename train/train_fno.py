@@ -2,11 +2,15 @@ import json
 import sys
 from pathlib import Path
 
+import matplotlib
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import yaml
 from tqdm import tqdm
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -21,6 +25,37 @@ def _nrmse(pred, target, eps=1e-8):
     mse = torch.mean((pred - target) ** 2)
     denom = torch.sqrt(torch.mean(target ** 2)) + eps
     return torch.sqrt(mse) / denom
+
+
+def _save_training_plots(run_dir, train_history, val_history, val_by_dataset):
+    plot_dir = run_dir / "plots" / "training"
+    plot_dir.mkdir(parents=True, exist_ok=True)
+
+    epochs = list(range(1, len(train_history) + 1))
+    plt.figure(figsize=(6, 4))
+    plt.plot(epochs, train_history, marker="o", label="train")
+    plt.plot(epochs, val_history, marker="o", label="val")
+    plt.xlabel("Epoch")
+    plt.ylabel("NRMSE")
+    plt.title("Train/Val NRMSE")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(plot_dir / "train_val_nrmse.png")
+    plt.close()
+
+    if val_by_dataset:
+        plt.figure(figsize=(7, 4))
+        for name, series in val_by_dataset.items():
+            if not series:
+                continue
+            plt.plot(epochs, series, marker="o", label=name)
+        plt.xlabel("Epoch")
+        plt.ylabel("Val NRMSE")
+        plt.title("Val NRMSE by Dataset")
+        plt.legend(fontsize=8, ncol=2)
+        plt.tight_layout()
+        plt.savefig(plot_dir / "val_nrmse_by_dataset.png")
+        plt.close()
 
 
 def _unpack_batch(batch, device):
@@ -87,6 +122,13 @@ def main(config_path):
     output_model = run_dir / Path(config["training"]["output_model"]).name
 
     best_val_loss = float("inf")
+    train_history = []
+    val_history = []
+    val_by_dataset = {}
+    for name, loader, _, _ in val_loaders:
+        if loader is None:
+            continue
+        val_by_dataset[name] = []
     for epoch in range(1, epochs+1):
         model.train()
         train_loss = 0.0
@@ -119,7 +161,9 @@ def main(config_path):
                         ds_loss += loss.item()
                         val_pbar.set_postfix(loss=loss.item())
                     ds_loss /= max(len(loader), 1)
-            logger.info("Val NRMSE (%s): %.6f", name, ds_loss)
+                    logger.info("Val NRMSE (%s): %.6f", name, ds_loss)
+                    if name in val_by_dataset:
+                        val_by_dataset[name].append(ds_loss)
                     val_loss += ds_loss * len(loader)
                     total_batches += len(loader)
                 if total_batches > 0:
@@ -129,40 +173,19 @@ def main(config_path):
 
         # Logging
         logger.info("[Epoch %d] Train NRMSE: %.6f, Val NRMSE: %.6f", epoch, train_loss, val_loss)
+        train_history.append(train_loss)
+        val_history.append(val_loss)
 
         # Save best model
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             torch.save(model, output_model)
-    # Final Test evaluation
-    test_loss = 0.0
-    if test_loaders:
-        model.eval()
-        with torch.no_grad():
-            total_batches = 0
-            for name, loader, _, _ in test_loaders:
-                ds_loss = 0.0
-                test_pbar = tqdm(loader, desc=f"Test {name}", leave=False)
-                for batch in test_pbar:
-                    u_t, u_tp1, _, _ = _unpack_batch(
-                        batch, device=next(model.parameters()).device
-                    )
-                    pred = model(u_t)
-                    loss = criterion(pred, u_tp1)
-                    ds_loss += loss.item()
-                    test_pbar.set_postfix(loss=loss.item())
-                ds_loss /= max(len(loader), 1)
-                logger.info("Test NRMSE (%s): %.6f", name, ds_loss)
-                test_loss += ds_loss * len(loader)
-                total_batches += len(loader)
-            if total_batches > 0:
-                test_loss /= total_batches
-            logger.info("Test NRMSE (avg): %.6f", test_loss)
+    _save_training_plots(run_dir, train_history, val_history, val_by_dataset)
     # Save metrics
     metrics = {
         "train_loss": train_loss,
         "val_loss": val_loss,
-        "test_loss": test_loss if test_loaders else None
+        "test_loss": None
     }
     with open(run_dir / "fno_metrics.json", "w") as f:
         json.dump(metrics, f, indent=2)

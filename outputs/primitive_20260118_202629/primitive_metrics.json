@@ -1,0 +1,6 @@
+{
+  "train_loss": 0.024300078361295163,
+  "val_loss": 0.025395029484219848,
+  "test_loss": null,
+  "num_primitives": 6
+}

@@ -35,6 +35,21 @@ def _resolve_run_dir(model_path):
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir
 
+
+def _call_model(model, u_t, pde_params=None, dataset_id=None, equation=None, sparse_primitives=False):
+    if pde_params is None and dataset_id is None and equation is None and not sparse_primitives:
+        return model(u_t)
+    try:
+        return model(
+            u_t,
+            pde_params=pde_params,
+            dataset_id=dataset_id,
+            equation=equation,
+            sparse_primitives=sparse_primitives,
+        )
+    except TypeError:
+        return model(u_t)
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate multi-step rollout error growth")
     parser.add_argument('--config', type=str, help="Path to YAML config for data")
@@ -110,13 +125,30 @@ if __name__ == "__main__":
             grid = grid.to(init_tensor.device)
             init_tensor = torch.cat([init_tensor, grid], dim=-1)
 
+        dataset_id = None
+        pde_params = None
+        equation = None
+        if hasattr(dataset, "dataset_id"):
+            dataset_id = torch.tensor([dataset.dataset_id], device=init_tensor.device, dtype=torch.long)
+        if hasattr(dataset, "params") and dataset.params is not None:
+            pde_params = dataset.params.to(init_tensor.device).float().unsqueeze(0)
+        if hasattr(dataset, "equation") and dataset.equation is not None:
+            equation = dataset.equation.to(init_tensor.device).float().unsqueeze(0)
+
         steps = args.steps
         max_steps = min(steps, T - 1)
         errors = []
         pred = init_tensor
         for step in tqdm(range(1, max_steps + 1), desc=f"Rollout {name}", leave=False):
             with torch.no_grad():
-                pred = model(pred)
+                pred = _call_model(
+                    model,
+                    pred,
+                    pde_params=pde_params,
+                    dataset_id=dataset_id,
+                    equation=equation,
+                    sparse_primitives=True,
+                )
                 if dataset.include_grid:
                     pred = torch.cat([pred, grid], dim=-1)
             gt = torch.from_numpy(seq[step].astype("float32")).unsqueeze(0).to(pred.device)

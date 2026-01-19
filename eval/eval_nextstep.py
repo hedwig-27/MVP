@@ -27,17 +27,21 @@ def _unpack_batch(batch, device):
         x, y, cond, _ = batch[0], batch[1], batch[2], batch[3]
         dataset_id = cond.get("dataset_id")
         pde_params = cond.get("params")
+        equation = cond.get("equation")
     else:
         x, y = batch[0], batch[1]
         dataset_id = None
         pde_params = None
+        equation = None
     x = x.float().to(device)
     y = y.float().to(device)
     if pde_params is not None:
         pde_params = pde_params.to(device).float()
     if dataset_id is not None:
         dataset_id = dataset_id.to(device).long()
-    return x, y, pde_params, dataset_id
+    if equation is not None:
+        equation = equation.to(device).float()
+    return x, y, pde_params, dataset_id, equation
 
 
 def _resolve_run_dir(model_path):
@@ -53,15 +57,30 @@ def _resolve_run_dir(model_path):
     return output_dir
 
 
-def _call_model(model, u_t, pde_params=None, dataset_id=None):
+def _call_model(model, u_t, pde_params=None, dataset_id=None, equation=None, sparse_primitives=False):
     try:
         sig = inspect.signature(model.forward)
         params = sig.parameters
         accepts_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
         accepts_pde = "pde_params" in params or accepts_kwargs
         accepts_dataset = "dataset_id" in params or accepts_kwargs
-        if (accepts_pde or accepts_dataset) and (pde_params is not None or dataset_id is not None):
-            return model(u_t, pde_params=pde_params, dataset_id=dataset_id)
+        accepts_equation = "equation" in params or accepts_kwargs
+        if (
+            (accepts_pde or accepts_dataset or accepts_equation)
+            and (
+                pde_params is not None
+                or dataset_id is not None
+                or equation is not None
+                or sparse_primitives
+            )
+        ):
+            return model(
+                u_t,
+                pde_params=pde_params,
+                dataset_id=dataset_id,
+                equation=equation,
+                sparse_primitives=sparse_primitives,
+            )
     except (ValueError, TypeError):
         pass
     return model(u_t)
@@ -85,15 +104,24 @@ def evaluate_model(model_path, data_conf, split, logger, run_dir):
         with torch.no_grad():
             pbar = tqdm(loader, desc=f"Eval {name}", leave=False)
             for batch in pbar:
-                u_t, u_tp1, pde_params, dataset_id = _unpack_batch(
+                u_t, u_tp1, pde_params, dataset_id, equation = _unpack_batch(
                     batch, device=next(model.parameters()).device
                 )
-                pred = _call_model(model, u_t, pde_params=pde_params, dataset_id=dataset_id)
+                pred = _call_model(
+                    model,
+                    u_t,
+                    pde_params=pde_params,
+                    dataset_id=dataset_id,
+                    equation=equation,
+                    sparse_primitives=True,
+                )
                 loss = criterion(pred, u_tp1)
                 ds_loss += loss.item()
                 pbar.set_postfix(loss=loss.item())
                 if usage_counts is not None:
-                    _, topk_idx = model.route(u_t, pde_params=pde_params, dataset_id=dataset_id)
+                    _, topk_idx = model.route(
+                        u_t, pde_params=pde_params, dataset_id=dataset_id, equation=equation
+                    )
                     flat = topk_idx.reshape(-1).cpu()
                     usage_counts += torch.bincount(flat, minlength=usage_counts.numel())
         ds_loss /= max(len(loader), 1)

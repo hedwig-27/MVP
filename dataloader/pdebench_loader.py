@@ -1,3 +1,7 @@
+import hashlib
+import json
+from pathlib import Path
+
 import h5py
 import numpy as np
 import torch
@@ -190,7 +194,12 @@ class PDEBenchDataset(Dataset):
 
         if normalize:
             if stats is None:
-                self.stats = self._compute_stats(self.sample_ids)
+                cached = self._load_stats_cache()
+                if cached is not None:
+                    self.stats = cached
+                else:
+                    self.stats = self._compute_stats(self.sample_ids)
+                    self._save_stats_cache(self.stats)
             else:
                 self.stats = stats
         else:
@@ -283,6 +292,44 @@ class PDEBenchDataset(Dataset):
             u = dset[[t0, t1]]
             u = u[:, self.x_idx, :]
         return np.asarray(u[0], dtype=np.float32), np.asarray(u[1], dtype=np.float32)
+
+    def _stats_cache_path(self):
+        cache_dir = Path(self.path).resolve().parent / ".stats_cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        sample_bytes = np.asarray(self.sample_ids, dtype=np.int64).tobytes()
+        sample_hash = hashlib.md5(sample_bytes).hexdigest()
+        key = {
+            "path": str(Path(self.path).resolve()),
+            "mode": self.mode,
+            "data_keys": self.data_keys,
+            "n_res": int(len(self.x_idx)),
+            "timesteps": int(self.timesteps),
+            "time_downsample": int(self.time_downsample),
+            "stats_samples": int(self.stats_samples) if self.stats_samples is not None else None,
+            "sample_ids": sample_hash,
+        }
+        digest = hashlib.md5(json.dumps(key, sort_keys=True).encode("utf-8")).hexdigest()
+        name = f"{Path(self.path).stem}_stats_{digest}.json"
+        return cache_dir / name
+
+    def _load_stats_cache(self):
+        path = self._stats_cache_path()
+        if not path.exists():
+            return None
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            return None
+        if "mean" in data and "std" in data:
+            return {"mean": float(data["mean"]), "std": float(data["std"])}
+        return None
+
+    def _save_stats_cache(self, stats):
+        path = self._stats_cache_path()
+        try:
+            path.write_text(json.dumps({"mean": float(stats["mean"]), "std": float(stats["std"])}))
+        except OSError:
+            pass
 
     def _compute_stats(self, sample_ids):
         use_ids = sample_ids

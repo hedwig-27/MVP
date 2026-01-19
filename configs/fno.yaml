@@ -17,6 +17,7 @@ data:
   n_test: 1000
   batch_size: 32
   num_workers: 4
+  # 使用数据的比例
   sample_ratio: 50
   steps_per_epoch: 2000
   datasets:
@@ -52,10 +53,6 @@ data:
       path: datasets/ReacDiff_Nu0.5_Rho5.0.hdf5
       params: {beta: 0.0, nu: 0.5, rho: 5.0}
       weight: 1.0
-    - name: diff_sorp
-      path: datasets/1D_diff-sorp_NA_NA.h5
-      params: {beta: 0.0, nu: 0.0, rho: 0.0}
-      weight: 1.0
   eval_datasets:
     - name: burgers_nu1
       path: datasets/1D_Burgers_Sols_Nu1.0.hdf5
@@ -63,6 +60,10 @@ data:
     - name: reacdiff_rho10
       path: datasets/ReacDiff_Nu0.5_Rho10.0.hdf5
       params: {beta: 0.0, nu: 0.5, rho: 10.0}
+  eval_equation_datasets:
+    - name: diff_sorp
+      path: datasets/1D_diff-sorp_NA_NA.h5
+      params: {beta: 0.0, nu: 0.0, rho: 0.0}
 
 training:
   epochs: 50

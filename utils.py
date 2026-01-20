@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import yaml
 
 def set_seed(seed):
     random.seed(seed)
@@ -69,3 +70,11 @@ def setup_logger(exp_name, output_dir):
         logger.addHandler(stream_handler)
 
     return logger, log_path
+
+
+def log_config(logger, cfg, title="Config"):
+    try:
+        text = yaml.safe_dump(cfg, sort_keys=False)
+    except Exception:
+        text = str(cfg)
+    logger.info("%s:\n%s", title, text.rstrip())

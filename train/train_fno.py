@@ -18,7 +18,7 @@ if str(ROOT) not in sys.path:
 
 from dataloader.multi_loader import build_loaders
 from models.fno1d import FNO1D
-from utils import create_run_dir, set_latest_link, setup_logger
+from utils import create_run_dir, log_config, set_latest_link, setup_logger
 
 
 def _nrmse(pred, target, eps=1e-8):
@@ -78,6 +78,7 @@ def main(config_path):
     if not linked:
         logger.info("Could not update outputs/latest_fno link.")
     logger.info("Log file: %s", log_path)
+    log_config(logger, config, title="Experiment config")
     # Set random seed for reproducibility (if needed)
     if 'seed' in config:
         torch.manual_seed(config['seed'])

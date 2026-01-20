@@ -4,13 +4,16 @@
 
 本项目是一个用于 **PDEBench-1D** 的自动原语发现（Primitive Discovery）MVP。核心思想是用一组匿名原语算子 + 稀疏路由（top-k）来组合动力学更新，重点观察在 **OOD（参数外推 / 方程外推）** 情况下的泛化能力，并与 UPS 论文结果做外部对照。
 
-模型形式：
+模型形式（支持线性/MLP 聚合器）：
 
 ```
-u_{t+1} = u_t + sum_i alpha_i * PrimitiveOperator_i(u_t)
+delta_i = Primitive_i(u_t)
+w = Router(stats(u_t), pde_params, equation, dataset_id)
+delta = Aggregate(w, {delta_i})  # 线性加权或 MLP 聚合
+u_{t+1} = u_t + delta
 ```
 
-路由器根据 `u_t` 的低维统计量（可选 PDE 参数）选择原语权重，原语在端到端训练中自动“分工”。
+路由器使用 `u_t` 的全局/局部统计与频域特征，并可拼接 PDE 参数、数据集 embedding、结构化方程系数与 LaTeX 文本编码；训练时可启用 top-k 稀疏路由。
 
 ## 项目结构
 
@@ -34,8 +37,8 @@ u_{t+1} = u_t + sum_i alpha_i * PrimitiveOperator_i(u_t)
 - `1D_Advection_Sols_beta{0.1,0.4,1.0}.hdf5`：tensor 模式，`(10000, 201, 1024)`，标量场，参数 `beta`
 - `1D_Burgers_Sols_Nu{0.001,0.01,0.1,1.0}.hdf5`：tensor 模式，`(10000, 201, 1024)`，标量场，参数 `nu`
 - `ReacDiff_Nu0.5_Rho{1.0,5.0,10.0}.hdf5`：tensor 模式，`(10000, 101, 1024)`，标量场，参数 `nu=0.5`、`rho`
-- `1D_diff-sorp_NA_NA.h5`：group-per-sample 模式，10000 组，每组 `data` 为 `(101, 1024, 1)`
-- `1D_CFD_Rand_Eta0.1_Zeta0.1_periodic_Train.hdf5`：多变量（`Vx/density/pressure`，3 通道）
+- `1D_diff-sorp_NA_NA.h5`：group-per-sample 模式，10000 组，每组 `data` 为 `(101, 1024, 1)`，含 `grid/x` 与 `grid/t`
+- `1D_CFD_Rand_Eta0.1_Zeta0.1_periodic_Train.hdf5`：multi 模式，`Vx/density/pressure` 3 通道（每个变量 `(10000, 101, 1024)`）
 
 注意：默认配置只混合 **单通道** 数据集。CFD 多通道数据建议单独训练或扩展模型后再混合。
 
@@ -53,7 +56,7 @@ u_{t+1} = u_t + sum_i alpha_i * PrimitiveOperator_i(u_t)
 
 ```yaml
 data:
-  sample_ratio: 50
+  sample_ratio: 100
   steps_per_epoch: 1000
   equation_terms: [advection, nonlinear_advection, diffusion, reaction, sorption, cns]
   equation_text_dim: 128
@@ -74,6 +77,11 @@ data:
       params: {beta: 0.0, nu: 0.0, rho: 0.0}
       equation_coeffs: {diffusion: 0.0005, sorption: 1.0}
 ```
+
+注意：
+- `equation_terms` 的顺序决定结构化系数向量的顺序。
+- `equation_text` 会用字符 n-gram 哈希编码到 `equation_text_dim` 维；缺失时自动补零向量。
+- `params` 会按 key 排序拼成向量，`router.pde_param_dim` 需与其长度一致。
 
 ### 数据集用途（当前默认配置）
 
@@ -97,53 +105,34 @@ bash run_all.sh
 
 ## 训练/评估流程说明
 
-- 训练阶段：仅计算 **Train/Val NRMSE**，保存 Val 最优模型。
+- 训练阶段：以 **NRMSE** 为主损失，可叠加 entropy/diversity/load-balance 正则；支持 top-k warmup、rollout_steps 与 scheduled sampling；保存 Val 最优模型。
 - 评估阶段：基于最优模型，在 **test split** 上评估：
   - ID：`data.datasets`
   - OOD-参数：`data.eval_datasets`（若配置）
   - OOD-方程：`data.eval_equation_datasets`（若配置）
+- OOD 评估默认不使用 `dataset_id`（避免数据集 embedding 带来泄露）。
 - 评估结果写入同一 `run.log`，并输出少量关键图表。
 - 评估入口统一使用 `eval/eval_suite.py`（其他评估脚本为历史保留，不在默认流程中使用）。
 
-## 训练参数建议
 
-- `data.sample_ratio`：当前默认 50（加速），需要更稳定可升到 100。
-- `data.normalize`：多数据集混训建议启用（按数据集各自统计）。
-- `data.num_workers`：加速数据加载。
-- `data.steps_per_epoch`：当前默认 1000（加速），稳定后可上调。
-- Primitive 若出现路由塌缩，可调小正则权重：  
-  `training.entropy_weight` / `training.diversity_weight`
-- Rollout 优化相关：`training.rollout_steps` / `training.rollout_gamma` / `training.scheduled_sampling`
-- 单步优化：`training.rollout_steps=1` 且 `training.scheduled_sampling.start/end=0`
-- 路由负载均衡：`training.load_balance_weight`
-- Top-k 预热：`training.topk_warmup_epochs`
-- 稀疏原语计算：`training.sparse_primitives`
-- Loss/metrics 统一采用 **NRMSE**（归一化 RMSE）。
+## TODO
 
-## TODO（关键改进项）
-
-- 方程公式的 LLM 编码器（当前仅使用结构化公式向量）。
-- 路由塌缩缓解：更强的负载均衡损失、温度/噪声探索、dataset_id dropout。
-- 归一化策略完善：多通道按通道统计；OOD 评估时可选使用训练统计以避免“统计泄露”。
-- 训练效率优化：多步未来帧读取的 HDF5 访问可批量化或缓存。
-- 原语数量与 top-k 的消融：验证容量/稀疏性对性能的影响。
-- OOD-方程留出实验扩展：基于更多方程数据集做“留一类方程”测试。
 
 ## 已实现功能
+- 数据加载：支持 PDEBench tensor/multi 与 group-per-sample H5；空间/时间下采样；可拼接网格坐标；`sample_ratio` 采样；训练集统计归一化并缓存；提供 `get_sequence` 供 rollout。
+- 多数据集混训：MixLoader 按权重采样并固定 `steps_per_epoch`；每数据集携带 `dataset_id`、`params`、`equation`；支持 `data_keys` 选取多通道子集。
+- 方程条件：`equation_terms` 系数向量 + `equation_text` 哈希向量；缺失自动补零；可从数据集名/参数推断常见项。
+- 路由器：全局统计（mean/std/min/max/grad_norm）+ 局部统计 + FFT 频域特征；可拼接 PDE 参数、数据集 embedding、方程向量；top-k 稀疏路由。
+- 原语算子：FNO1D 或 CNN 作为匿名原语；输出 delta；聚合器支持 linear 或 MLP。
+- 训练流程：NRMSE + entropy/diversity/load-balance 正则；rollout 训练与 scheduled sampling；top-k warmup；可选 sparse_primitives 加速；保存最佳模型与训练曲线。
+- 评估流程：ID/OOD 一步预测 + rollout 曲线与 NRMSE@20；输出 JSON/图表；统计路由使用频次。
+- 输出与复现：`outputs/<exp>_<timestamp>` + `outputs/latest_primitive` 软链；统一 `run.log`；`run_all.sh` 一键训练+评估。
+- 基线：提供 FNO 训练脚本与配置（非默认流程）。
 
-- 多数据集混训与加权采样（`MixLoader`），支持 `sample_ratio` 与 `steps_per_epoch`。
-- 数据集级标准化（按训练集统计 mean/std），可选网格坐标拼接。
-- 归一化统计缓存（避免每次训练重复统计）。
-- Primitive 端到端训练：匿名原语算子（FNO/CNN）+ 显式增量更新。
-- 原语组合器：支持线性加权与非线性 MLP 组合（可配置）。
-- 路由器条件输入：全局统计、梯度范数、局部统计、FFT 频域特征、PDE 参数、数据集 embedding、结构化公式向量、LaTeX 公式文本编码。
-- 稀疏路由（top-k）+ 预热阶段 + 负载均衡正则。
-- 多步训练目标（rollout-aware）与 scheduled sampling。
-- 统一评估流程（ID/OOD 一步预测 + rollout），并统计 router usage。
 
 ## 公式文本输入（LaTeX）
 
-当前配置会把每个数据集的 `equation_text` 编码成向量（与 `equation_coeffs` 拼接后输入路由器）。示例公式如下：
+当前配置会把每个数据集的 `equation_text` 编码成向量（与 `equation_coeffs` 拼接后输入路由器）。编码方式为字符 n-gram 哈希。示例公式如下：
 
 **Advection (1D)**
 ```latex
@@ -175,71 +164,78 @@ bash run_all.sh
 
 ## 版本记录
 
-### 20260118_202629（当前）
+### 20260119
+
+#### 关键配置
+- 相比 20260118：训练集权重从 1/1/1 调整为 adv_beta0.4=5.0、burgers_nu0.001=1.0、diff_sorp=25.0。
+- epochs: 100, steps_per_epoch: 2000。
+
+### 20260118
 
 #### 关键配置
 - 训练集：adv_beta0.4、burgers_nu0.001、diff_sorp（多数据集混训）。
 - OOD-参数：adv_beta1.0、burgers_nu1；OOD-方程：reacdiff_rho1/5/10。
-- Primitive：FNO（modes=8, width=32, depth=3）。
-- 组合器：MLP（hidden_dim=32），top-k=3。
-- 路由特征：全局统计 + 局部统计 + FFT + PDE 参数 + 数据集 embedding + 结构化公式 + LaTeX 公式编码。
-- 采样与步数：sample_ratio=50，steps_per_epoch=1000，batch_size=32。
-- 单步优化：rollout_steps=1，scheduled_sampling=0。
-- time_downsample=5（与 UPS 论文的 41/21 timesteps 对齐）。
+- Primitive：FNO（modes=8, width=32, depth=3, fc_dim=64），`num_primitives=6`。
+- 组合器：MLP（hidden_dim=32）。
+- 路由器：hidden_dim=64，top-k=3，stats=mean/std/min/max/grad_norm，local_segments=4，local_stats=mean/std，fft_bins=8，pde_param_dim=3，dataset_embed_dim=8，equation_dim=6+128。
+- 采样与步数：sample_ratio=100，steps_per_epoch=1000，batch_size=32。
+- 训练设置：epochs=50，rollout_steps=1，topk_warmup_epochs=5，scheduled_sampling=0。
+- time_downsample=5。
 
 ## 结果记录
 **记录说明**
 - 所有数值均为 **NRMSE**。
-- 后续新版本直接在现有表格中新增一列（或一行）“MVP(时间戳)”。
+- 当前记录 20260118/20260119；后续新版本在现有表格中新增一列（或一行）。
 
 **训练/验证**
 
 | 版本 | Train | Val |
 | --- | --- | --- |
-| 20260118_202629 | 0.024300 | 0.025395 |
+| 20260119 | 0.006706 | 0.031957 |
+| 20260118 | 0.024300 | 0.025395 |
 
 **ID 一步预测**
 
-| 数据集 | MVP（20260118_202629） | FNO（Single-Family） | FNO（Unified） | UPS-B | UPS-L |
-| --- | --- | --- | --- | --- | --- |
-| adv_beta0.4 | 0.010871 | 0.011 | 0.0130 | 0.0027 | 0.0022 |
-| burgers_nu0.001 | 0.044805 | 0.042 | 0.0501 | 0.0399 | 0.0373 |
-| diff_sorp | 0.002099 | 0.0017 | 0.0041 | 0.0009 | 0.0009 |
-| avg | 0.022690 | — | — | — | — |
+| 数据集 | MVP（20260118） | MVP（20260119） | FNO（Single-Family） | FNO（Unified） | UPS-B | UPS-L |
+| --- | --- | --- | --- | --- | --- | --- |
+| adv_beta0.4 | 0.010871 | 0.010781 | 0.011 | 0.0130 | 0.0027 | 0.0022 |
+| burgers_nu0.001 | 0.044805 | 0.057242 | 0.042 | 0.0501 | 0.0399 | 0.0373 |
+| diff_sorp | 0.002099 | 0.002115 | 0.0017 | 0.0041 | 0.0009 | 0.0009 |
+| avg | 0.022690 | 0.027632 | — | — | — | — |
 
 **ID Rollout@20**
 
-| 数据集 | MVP（20260118_202629） |
-| --- | --- |
-| adv_beta0.4 | 0.102977 |
-| burgers_nu0.001 | 0.256642 |
-| diff_sorp | 0.003666 |
-| avg | 0.121095 |
+| 数据集 | MVP（20260118） | MVP（20260119） |
+| --- | --- | --- |
+| adv_beta0.4 | 0.102977 | 0.102891 |
+| burgers_nu0.001 | 0.256642 | 0.206329 |
+| diff_sorp | 0.003666 | 0.016400 |
+| avg | 0.121095 | 0.108540 |
 
 **OOD-参数**
 
-| 数据集 | MVP（20260118_202629）一步预测 | MVP（20260118_202629）Rollout@20 | UPS-B（0 samples） | FNO（0 samples） |
-| --- | --- | --- | --- | --- |
-| adv_beta1.0 | 0.433994 | 1.201563 | — | — |
-| burgers_nu1 | 0.256437 | 0.314546 | 0.0566 | 1.0342 |
-| avg | 0.345216 | 0.758054 | — | — |
+| 数据集 | MVP（20260118）一步预测 | MVP（20260119）一步预测 | MVP（20260118）Rollout@20 | MVP（20260119）Rollout@20 | UPS-B（0 samples） | FNO（0 samples） |
+| --- | --- | --- | --- | --- | --- | --- |
+| adv_beta1.0 | 0.433994 | 0.445080 | 1.201563 | 1.220268 | — | — |
+| burgers_nu1 | 0.256437 | 0.290047 | 0.314546 | 0.301903 | 0.0566 | 1.0342 |
+| avg | 0.345216 | 0.367564 | 0.758054 | 0.761085 | — | — |
 
 **OOD-方程（reacdiff）**
 
-| 数据集 | MVP（20260118_202629）一步预测 | MVP（20260118_202629）Rollout@20 | UPS-B（0 samples） | FNO（0 samples） |
-| --- | --- | --- | --- | --- |
-| reacdiff_rho1 | 1.396651 | 0.812408 | 0.0557 | 0.1839 |
-| reacdiff_rho5 | 0.544398 | 5.235736 | — | — |
-| reacdiff_rho10 | 0.728883 | 8.439720 | — | — |
-| avg | 0.889977 | 4.829288 | — | — |
+| 数据集 | MVP（20260118）一步预测 | MVP（20260119）一步预测 | MVP（20260118）Rollout@20 | MVP（20260119）Rollout@20 | UPS-B（0 samples） | FNO（0 samples） |
+| --- | --- | --- | --- | --- | --- | --- |
+| reacdiff_rho1 | 1.396651 | 1.852961 | 0.812408 | 1.150930 | 0.0557 | 0.1839 |
+| reacdiff_rho5 | 0.544398 | 0.591105 | 5.235736 | 5.316033 | — | — |
+| reacdiff_rho10 | 0.728883 | 0.765395 | 8.439720 | 8.108418 | — | — |
+| avg | 0.889977 | 1.069820 | 4.829288 | 4.858460 | — | — |
 
 **路由使用（Primitive）**
 
-| 原语 | MVP（20260118_202629）选择次数 | MVP（20260118_202629）占比 |
-| --- | --- | --- |
-| P1 | 122710 | 17.0% |
-| P2 | 167632 | 23.3% |
-| P3 | 164587 | 22.9% |
-| P4 | 97473 | 13.5% |
-| P5 | 36123 | 5.0% |
-| P6 | 131475 | 18.3% |
+| 原语 | MVP（20260118）选择次数 | MVP（20260118）占比 | MVP（20260119）选择次数 | MVP（20260119）占比 |
+| --- | --- | --- | --- | --- |
+| P1 | 122710 | 17.0% | 81923 | 11.4% |
+| P2 | 167632 | 23.3% | 175881 | 24.4% |
+| P3 | 164587 | 22.9% | 68708 | 9.5% |
+| P4 | 97473 | 13.5% | 125554 | 17.4% |
+| P5 | 36123 | 5.0% | 86183 | 12.0% |
+| P6 | 131475 | 18.3% | 181751 | 25.2% |

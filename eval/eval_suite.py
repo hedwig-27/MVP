@@ -17,7 +17,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from dataloader.multi_loader import build_eval_loaders
-from utils import setup_logger
+from utils import log_config, setup_logger
 
 
 def _nrmse(pred, target, eps=1e-8):
@@ -270,6 +270,7 @@ def main():
     run_dir = _resolve_run_dir(model_path)
     logger, log_path = setup_logger("eval", run_dir)
     logger.info("Log file: %s", log_path)
+    # log_config(logger, cfg, title="Eval config")
 
     model = torch.load(model_path)
     model = model.cuda() if torch.cuda.is_available() else model

@@ -1,5 +1,6 @@
 __pycache__
-datasets/
 *.pt
 latest_fno
 latest_primitive
+*.hdf5
+*.h5

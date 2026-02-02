@@ -64,11 +64,29 @@ data:
       equation_coeffs: {advection: 0.4}
       equation_text: '\partial_t u(t,x) + \beta \partial_x u(t,x) = 0, \beta=0.4'
       weight: 1.0
+    - name: adv_beta0.1
+      path: datasets/1D_Advection_Sols_beta0.1.hdf5
+      params: {beta: 0.1, nu: 0.0, rho: 0.0}
+      equation_coeffs: {advection: 0.1}
+      equation_text: '\partial_t u(t,x) + \beta \partial_x u(t,x) = 0, \beta=0.1'
+      weight: 1.0
     - name: burgers_nu0.001
       path: datasets/1D_Burgers_Sols_Nu0.001.hdf5
       params: {beta: 0.0, nu: 0.001, rho: 0.0}
       equation_coeffs: {nonlinear_advection: 1.0, diffusion: 0.00031831}
       equation_text: '\partial_t u(t,x) + \partial_x \frac{u(t,x)^2}{2} = \frac{\nu}{\pi} \partial_{xx} u(t,x), \nu=0.001'
+      weight: 1.0
+    - name: burgers_nu0.01
+      path: datasets/1D_Burgers_Sols_Nu0.01.hdf5
+      params: {beta: 0.0, nu: 0.01, rho: 0.0}
+      equation_coeffs: {nonlinear_advection: 1.0, diffusion: 0.0031831}
+      equation_text: '\partial_t u(t,x) + \partial_x \frac{u(t,x)^2}{2} = \frac{\nu}{\pi} \partial_{xx} u(t,x), \nu=0.01'
+      weight: 1.0
+    - name: burgers_nu0.1
+      path: datasets/1D_Burgers_Sols_Nu0.1.hdf5
+      params: {beta: 0.0, nu: 0.1, rho: 0.0}
+      equation_coeffs: {nonlinear_advection: 1.0, diffusion: 0.031831}
+      equation_text: '\partial_t u(t,x) + \partial_x \frac{u(t,x)^2}{2} = \frac{\nu}{\pi} \partial_{xx} u(t,x), \nu=0.1'
       weight: 1.0
     - name: diff_sorp
       path: datasets/1D_diff-sorp_NA_NA.h5

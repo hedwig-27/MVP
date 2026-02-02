@@ -1,19 +1,54 @@
 # MVP
 
+## TODO
+- 加强原语分工信号：在现有正则基础上加入/强化输出正交或差异性约束 + load-balance，防止专家塌缩
+- 非线性组合器升级：从“权重×delta 后 MLP”升级为对所有原语输出的联合融合（concat/attention）
+- 多尺度/分域路由：基于已有 FFT/坐标特征加入频段/空间区域 gating，提升多尺度拟合与泛化
+- 中长期：探索超网络/动态模块生成（低频更新或按 task 生成），验证对 OOD 的收益
+
 ## 项目简介
 
 本项目是一个用于 **PDEBench-1D** 的自动原语发现（Primitive Discovery）MVP。核心思想是用一组匿名原语算子 + 稀疏路由（top-k）来组合动力学更新，重点观察在 **OOD（参数外推 / 方程外推）** 情况下的泛化能力，并与 UPS 论文结果做外部对照。
+
+整体流程（高层概览）：
+- 数据读取：从 PDEBench/H5 读取序列，构造一步预测对 `(u_t, u_{t+1})`，按配置做时空下采样与归一化，可拼接网格坐标。
+- 条件构造：为每个数据集准备 PDE 参数向量、结构化方程系数 + 公式文本哈希向量、数据集 embedding。
+- 路由选择：用 `u_t` 生成函数空间 token，经 Transformer Router 编码；条件向量作为侧面调制（Scale/Shift）影响注意力与前馈，输出对“残差原语 + 共享基础算子”的权重，并做带 always-on 的 top-k 选择（base 恒被选中）。
+- 原语预测：每个原语（FNO/CNN）预测 `delta_i = Primitive_i(u_t)`。
+- 组合更新：用权重对原语输出聚合（线性或 MLP），得到 `delta` 并更新 `u_{t+1} = u_t + delta`。
+- 训练评估：训练阶段优化 NRMSE + 正则；评估阶段在 ID/OOD 上做一步预测与 rollout，并输出图表与路由使用统计。
 
 模型形式（支持线性/MLP 聚合器）：
 
 ```
 delta_i = Primitive_i(u_t)
-w = Router(stats(u_t), pde_params, equation, dataset_id)
-delta = Aggregate(w, {delta_i})  # 线性加权或 MLP 聚合
+delta_base = Base(u_t)
+w = Router(u_t; stats(u_t) | cond(pde_params, equation, dataset_id))  # 对 [delta_i, delta_base] 给权重，base always-on
+delta = Aggregate(w, {delta_i} ∪ {delta_base})  # 权重先与 delta 相乘，再经 MLP 聚合
 u_{t+1} = u_t + delta
 ```
 
-路由器使用 `u_t` 的全局/局部统计与频域特征，并可拼接 PDE 参数、数据集 embedding、结构化方程系数与 LaTeX 文本编码；训练时可启用 top-k 稀疏路由。
+路由器使用 `u_t` 的函数空间 token（下采样序列 + 统计/FFT token）作为内容输入；PDE 参数、数据集 embedding、结构化方程系数与 LaTeX 文本编码组成条件向量，作为 Transformer 的侧面调制（Scale/Shift），不直接作为输入 token。输出对“残差原语 + 共享基础算子”的权重；当 base 启用时，base 作为额外原语参与组合器并在 top-k 中恒被选中（always-on）。
+
+模型架构示意（ASCII）：
+
+```
+u_t --> [State/Stats/FFT Tokens] --> Transformer Router --> vector weights (residual + base)
+                 ^                      ^
+                 |                      |
+     Params/Equation/Embed --------- (Scale & Shift)
+
+Primitive_1(u_t) -> delta_1 ----+
+Primitive_2(u_t) -> delta_2 ----+--> Aggregator MLP (weighted delta) -> delta
+              ...               |
+Primitive_K(u_t) -> delta_K ----+
+ Base(u_t)       -> delta_base -+
+
+u_{t+1} = u_t + delta
+```
+
+
+
 
 ## 项目结构
 
@@ -22,6 +57,15 @@ u_{t+1} = u_t + delta
 - `train/`：Primitive 训练脚本（FNO 脚本保留但默认不使用）
 - `eval/`：统一评估脚本（ID/OOD，一步预测 + rollout）
 - `configs/`：多数据集训练/评估配置
+- `outputs/`：训练/评估输出目录（含 `latest_primitive` 软链接）
+
+## 环境依赖
+
+```bash
+pip install -r requirements.txt
+```
+
+如需 GPU，请按你的 CUDA 版本安装匹配的 PyTorch。
 
 ## 数据与读取
 
@@ -87,9 +131,9 @@ data:
 
 | 用途 | 数据集 |
 | --- | --- |
-| 训练/ID | adv_beta0.4, burgers_nu0.001, diff_sorp |
+| 训练/ID | adv_beta0.4（weight=2.0）, burgers_nu0.001（weight=1.0）, diff_sorp（weight=4.0，timesteps=21, time_downsample=5） |
 | OOD-参数 | adv_beta1.0, burgers_nu1 |
-| OOD-方程 | reacdiff_rho1, reacdiff_rho5, reacdiff_rho10 |
+| OOD-方程 | reacdiff_rho1, reacdiff_rho5, reacdiff_rho10（均 timesteps=21, time_downsample=5） |
 
 ## 快速开始
 
@@ -103,9 +147,17 @@ bash run_all.sh
 
 输出会写入 `outputs/<exp>_<timestamp>/`，并维护 `outputs/latest_primitive` 软链接。
 
+若需单独运行：
+
+```bash
+python train/train_primitives.py --config configs/primitive.yaml
+python eval/eval_suite.py --config configs/primitive.yaml --model outputs/latest_primitive/primitive_model.pt --steps 20 --sample_idx 0
+```
+
 ## 训练/评估流程说明
 
 - 训练阶段：以 **NRMSE** 为主损失，可叠加 entropy/diversity/load-balance 正则；支持 top-k warmup、rollout_steps 与 scheduled sampling；保存 Val 最优模型。
+- 当 `model.base_operator.enabled=true` 时，路由与组合器会使用 `num_primitives + 1`（base 作为最后一个原语且 always-on）；`router.top_k` 会把 base 算在内（例如 `top_k=3` 表示 base + 2 个残差原语），load-balance 默认忽略 base。
 - 评估阶段：基于最优模型，在 **test split** 上评估：
   - ID：`data.datasets`
   - OOD-参数：`data.eval_datasets`（若配置）
@@ -115,15 +167,15 @@ bash run_all.sh
 - 评估入口统一使用 `eval/eval_suite.py`（其他评估脚本为历史保留，不在默认流程中使用）。
 
 
-## TODO
+
 
 
 ## 已实现功能
 - 数据加载：支持 PDEBench tensor/multi 与 group-per-sample H5；空间/时间下采样；可拼接网格坐标；`sample_ratio` 采样；训练集统计归一化并缓存；提供 `get_sequence` 供 rollout。
 - 多数据集混训：MixLoader 按权重采样并固定 `steps_per_epoch`；每数据集携带 `dataset_id`、`params`、`equation`；支持 `data_keys` 选取多通道子集。
 - 方程条件：`equation_terms` 系数向量 + `equation_text` 哈希向量；缺失自动补零；可从数据集名/参数推断常见项。
-- 路由器：全局统计（mean/std/min/max/grad_norm）+ 局部统计 + FFT 频域特征；可拼接 PDE 参数、数据集 embedding、方程向量；top-k 稀疏路由。
-- 原语算子：FNO1D 或 CNN 作为匿名原语；输出 delta；聚合器支持 linear 或 MLP。
+- 路由器：Transformer 条件调制（FiLM/AdaLN）；输入为 `u_t` 下采样序列 + 统计/FFT token，条件向量（PDE 参数、数据集 embedding、方程向量）作为侧面 Scale/Shift 调制；输出每原语向量权重用于 top-k 选择与通道加权。
+- 原语算子：FNO1D 或 CNN 作为匿名原语；输出 delta；聚合器支持 linear 与 MLP（权重+delta）；共享基础算子（小型 FNO）作为“额外原语”进入组合器并赋予权重，且在 top-k 中恒被选中（always-on，load-balance 默认忽略 base）。
 - 训练流程：NRMSE + entropy/diversity/load-balance 正则；rollout 训练与 scheduled sampling；top-k warmup；可选 sparse_primitives 加速；保存最佳模型与训练曲线。
 - 评估流程：ID/OOD 一步预测 + rollout 曲线与 NRMSE@20；输出 JSON/图表；统计路由使用频次。
 - 输出与复现：`outputs/<exp>_<timestamp>` + `outputs/latest_primitive` 软链；统一 `run.log`；`run_all.sh` 一键训练+评估。
@@ -132,7 +184,7 @@ bash run_all.sh
 
 ## 公式文本输入（LaTeX）
 
-当前配置会把每个数据集的 `equation_text` 编码成向量（与 `equation_coeffs` 拼接后输入路由器）。编码方式为字符 n-gram 哈希。示例公式如下：
+当前配置会把每个数据集的 `equation_text` 编码成向量（与 `equation_coeffs` 拼接为条件向量，作为路由器的侧面调制输入）。编码方式为字符 n-gram 哈希。示例公式如下：
 
 **Advection (1D)**
 ```latex
@@ -164,15 +216,23 @@ bash run_all.sh
 
 ## 版本记录
 
-### 20260119
+### 20260127
 
-#### 关键配置
-- 相比 20260118：训练集权重从 1/1/1 调整为 adv_beta0.4=5.0、burgers_nu0.001=1.0、diff_sorp=25.0。
-- epochs: 100, steps_per_epoch: 2000。
+- 训练集权重统一为 adv_beta0.4=1.0、burgers_nu0.001=1.0、diff_sorp=1.0（见 `configs/primitive.yaml`）。
+- 当前默认配置 `sample_ratio=100`（见 `configs/primitive.yaml`）。
+- diff_sorp 与 reacdiff 系列默认使用 `timesteps=21`、`time_downsample=5` 的数据子采样设置。
+- 路由器升级为 Transformer 条件调制（Scale/Shift），条件向量不再作为输入 token。
+- 新增共享基础算子路径（小型 FNO），并作为“额外原语”参与组合器且赋予权重；base 在 top-k 中恒被选中（always-on），load-balance 默认忽略 base。
+
+### 20260120
+
+- 路由器输出每原语向量权重（通道维）：`router.code_dim=C`，用于 top-k 选择与通道加权。
+- 组合器保持 MLP（先权重乘 delta，再进入 MLP 聚合）。
+- 保持全局 top-k 选择（非逐点），`router.spatial=false`，`sparse_primitives=true`。
+
 
 ### 20260118
 
-#### 关键配置
 - 训练集：adv_beta0.4、burgers_nu0.001、diff_sorp（多数据集混训）。
 - OOD-参数：adv_beta1.0、burgers_nu1；OOD-方程：reacdiff_rho1/5/10。
 - Primitive：FNO（modes=8, width=32, depth=3, fc_dim=64），`num_primitives=6`。
@@ -185,51 +245,56 @@ bash run_all.sh
 ## 结果记录
 **记录说明**
 - 所有数值均为 **NRMSE**。
-- 当前记录 20260118/20260119；后续新版本在现有表格中新增一列（或一行）。
+- 当前记录 20260118/20260119/20260120/20260126/20260127；其中 20260120 对应 `outputs/primitive_20260121_174717`，20260126 对应 `outputs/primitive_20260126_174851`，20260127 对应 `outputs/primitive_20260127_150601`。
 
 **训练/验证**
 
 | 版本 | Train | Val |
 | --- | --- | --- |
+| 20260127 | 0.026071 | 0.027718 |
+| 20260126 | 0.014905 | 0.031206 |
+| 20260120 | 0.013737 | 0.025068 |
 | 20260119 | 0.006706 | 0.031957 |
 | 20260118 | 0.024300 | 0.025395 |
 
 **ID 一步预测**
 
-| 数据集 | MVP（20260118） | MVP（20260119） | FNO（Single-Family） | FNO（Unified） | UPS-B | UPS-L |
-| --- | --- | --- | --- | --- | --- | --- |
-| adv_beta0.4 | 0.010871 | 0.010781 | 0.011 | 0.0130 | 0.0027 | 0.0022 |
-| burgers_nu0.001 | 0.044805 | 0.057242 | 0.042 | 0.0501 | 0.0399 | 0.0373 |
-| diff_sorp | 0.002099 | 0.002115 | 0.0017 | 0.0041 | 0.0009 | 0.0009 |
-| avg | 0.022690 | 0.027632 | — | — | — | — |
+| 数据集 | MVP（20260118） | MVP（20260119） | MVP（20260120） | MVP（20260126） | MVP（20260127） | FNO（Single-Family） | FNO（Unified） | UPS-B | UPS-L |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| adv_beta0.4 | 0.010871 | 0.010781 | 0.009963 | 0.014140 | 0.011057 | 0.011 | 0.0130 | 0.0027 | 0.0022 |
+| burgers_nu0.001 | 0.044805 | 0.057242 | 0.049281 | 0.056373 | 0.049449 | 0.042 | 0.0501 | 0.0399 | 0.0373 |
+| diff_sorp | 0.002099 | 0.002115 | 0.004323 | 0.002513 | 0.002506 | 0.0017 | 0.0041 | 0.0009 | 0.0009 |
+| avg | 0.022690 | 0.027632 | 0.024562 | 0.028699 | 0.024696 | — | — | — | — |
 
 **ID Rollout@20**
 
-| 数据集 | MVP（20260118） | MVP（20260119） |
-| --- | --- | --- |
-| adv_beta0.4 | 0.102977 | 0.102891 |
-| burgers_nu0.001 | 0.256642 | 0.206329 |
-| diff_sorp | 0.003666 | 0.016400 |
-| avg | 0.121095 | 0.108540 |
+| 数据集 | MVP（20260118） | MVP（20260119） | MVP（20260120） | MVP（20260126） | MVP（20260127） |
+| --- | --- | --- | --- | --- | --- |
+| adv_beta0.4 | 0.102977 | 0.102891 | 0.080280 | 0.051588 | 0.062999 |
+| burgers_nu0.001 | 0.256642 | 0.206329 | 0.328599 | 0.116454 | 0.168464 |
+| diff_sorp | 0.003666 | 0.016400 | 0.008408 | 0.007364 | 0.014009 |
+| avg | 0.121095 | 0.108540 | 0.139096 | 0.058469 | 0.081824 |
 
 **OOD-参数**
 
-| 数据集 | MVP（20260118）一步预测 | MVP（20260119）一步预测 | MVP（20260118）Rollout@20 | MVP（20260119）Rollout@20 | UPS-B（0 samples） | FNO（0 samples） |
-| --- | --- | --- | --- | --- | --- | --- |
-| adv_beta1.0 | 0.433994 | 0.445080 | 1.201563 | 1.220268 | — | — |
-| burgers_nu1 | 0.256437 | 0.290047 | 0.314546 | 0.301903 | 0.0566 | 1.0342 |
-| avg | 0.345216 | 0.367564 | 0.758054 | 0.761085 | — | — |
+| 数据集 | MVP（20260118）一步预测 | MVP（20260119）一步预测 | MVP（20260120）一步预测 | MVP（20260126）一步预测 | MVP（20260127）一步预测 | MVP（20260118）Rollout@20 | MVP（20260119）Rollout@20 | MVP（20260120）Rollout@20 | MVP（20260126）Rollout@20 | MVP（20260127）Rollout@20 | UPS-B（0 samples） | FNO（0 samples） |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| adv_beta1.0 | 0.433994 | 0.445080 | 0.418955 | 0.407004 | 0.406106 | 1.201563 | 1.220268 | 1.281952 | 0.427529 | 0.440921 | — | — |
+| burgers_nu1 | 0.256437 | 0.290047 | 0.263197 | 0.243768 | 0.229572 | 0.314546 | 0.301903 | 0.423999 | 0.271024 | 0.186229 | 0.0566 | 1.0342 |
+| avg | 0.345216 | 0.367564 | 0.341076 | 0.325386 | 0.317839 | 0.758054 | 0.761085 | 0.852976 | 0.349276 | 0.313575 | — | — |
 
 **OOD-方程（reacdiff）**
 
-| 数据集 | MVP（20260118）一步预测 | MVP（20260119）一步预测 | MVP（20260118）Rollout@20 | MVP（20260119）Rollout@20 | UPS-B（0 samples） | FNO（0 samples） |
-| --- | --- | --- | --- | --- | --- | --- |
-| reacdiff_rho1 | 1.396651 | 1.852961 | 0.812408 | 1.150930 | 0.0557 | 0.1839 |
-| reacdiff_rho5 | 0.544398 | 0.591105 | 5.235736 | 5.316033 | — | — |
-| reacdiff_rho10 | 0.728883 | 0.765395 | 8.439720 | 8.108418 | — | — |
-| avg | 0.889977 | 1.069820 | 4.829288 | 4.858460 | — | — |
+| 数据集 | MVP（20260118）一步预测 | MVP（20260119）一步预测 | MVP（20260120）一步预测 | MVP（20260126）一步预测 | MVP（20260127）一步预测 | MVP（20260118）Rollout@20 | MVP（20260119）Rollout@20 | MVP（20260120）Rollout@20 | MVP（20260126）Rollout@20 | MVP（20260127）Rollout@20 | UPS-B（0 samples） | FNO（0 samples） |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| reacdiff_rho1 | 1.396651 | 1.852961 | 1.440692 | 1.775431 | 1.909669 | 0.812408 | 1.150930 | 0.656774 | 2.065532 | 9.873865 | 0.0557 | 0.1839 |
+| reacdiff_rho5 | 0.544398 | 0.591105 | 0.553558 | 0.566658 | 0.466353 | 5.235736 | 5.316033 | 4.613879 | 3.930624 | 2.690305 | — | — |
+| reacdiff_rho10 | 0.728883 | 0.765395 | 0.732875 | 0.772484 | 0.640842 | 8.439720 | 8.108418 | 7.330739 | 5.725940 | 4.357972 | — | — |
+| avg | 0.889977 | 1.069820 | 0.909042 | 1.038191 | 1.005622 | 4.829288 | 4.858460 | 4.200464 | 3.907365 | 5.640714 | — | — |
 
 **路由使用（Primitive）**
+
+注：以下统计来自 20260118/20260119 的旧版路由；20260126 启用 base 后会多一个 always-on 的 base 原语（索引为最后一个），未在此表中展示。
 
 | 原语 | MVP（20260118）选择次数 | MVP（20260118）占比 | MVP（20260119）选择次数 | MVP（20260119）占比 |
 | --- | --- | --- | --- | --- |

@@ -4,3 +4,4 @@ latest_fno
 latest_primitive
 *.hdf5
 *.h5
+# outputs/

@@ -1,5 +1,6 @@
 import json
 import sys
+import time
 from pathlib import Path
 
 import matplotlib
@@ -17,9 +18,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from dataloader.multi_loader import build_loaders
-from models.primitive_composer import PrimitiveAggregator, PrimitiveCNO, Router
+from models.primitive_composer import PrimitiveAggregator, PrimitiveCNO, Router, TransformerRouter
 from models.primitive_operator import PrimitiveOperator
 from utils import create_run_dir, set_latest_link, setup_logger
+
+TQDM_KWARGS = dict(ncols=80, dynamic_ncols=True, bar_format="{l_bar}{bar:10}{r_bar}")
 
 
 def _nrmse(pred, target, eps=1e-8):
@@ -94,12 +97,26 @@ def _unpack_batch(batch, device, return_meta=False):
     return x, y, pde_params, dataset_id, equation
 
 
-def _load_balance_loss(weights):
+def _load_balance_loss(weights, num_primitives, ignore_index=None):
     if weights is None:
         return 0.0
-    num = weights.size(-1)
-    target = torch.full((num,), 1.0 / num, device=weights.device, dtype=weights.dtype)
-    mean_w = weights.mean(dim=0)
+    if weights.dim() == 3 and weights.size(1) == num_primitives:
+        # vector weights: (B, P, C)
+        mean_w = weights.mean(dim=(0, 2))
+    elif weights.dim() == 3:
+        # spatial weights: (B, X, P)
+        mean_w = weights.mean(dim=(0, 1))
+    else:
+        mean_w = weights.mean(dim=0)
+    if ignore_index is not None and mean_w.numel() > 1:
+        mask = torch.ones_like(mean_w, dtype=torch.bool)
+        if 0 <= ignore_index < mean_w.numel():
+            mask[ignore_index] = False
+            mean_w = mean_w[mask]
+            num_primitives = mean_w.numel()
+    if num_primitives <= 0:
+        return 0.0
+    target = torch.full((num_primitives,), 1.0 / num_primitives, device=weights.device, dtype=weights.dtype)
     return torch.sum((mean_w - target) ** 2)
 
 
@@ -178,33 +195,110 @@ def main(config_path):
             )
         )
 
+    base_operator = None
+    base_conf = model_conf.get("base_operator") or model_conf.get("shared_base")
+    if base_conf:
+        enabled = True
+        if isinstance(base_conf, dict):
+            enabled = base_conf.get("enabled", True)
+        if enabled:
+            base_type = base_conf.get("type", primitive_conf.get("type", "fno")) if isinstance(base_conf, dict) else primitive_conf.get("type", "fno")
+            base_modes = base_conf.get("modes", max(1, primitive_conf["modes"] // 2)) if isinstance(base_conf, dict) else max(1, primitive_conf["modes"] // 2)
+            base_width = base_conf.get("width", max(8, primitive_conf["width"] // 2)) if isinstance(base_conf, dict) else max(8, primitive_conf["width"] // 2)
+            base_depth = base_conf.get("depth", max(1, primitive_conf["depth"] // 2)) if isinstance(base_conf, dict) else max(1, primitive_conf["depth"] // 2)
+            base_fc_dim = base_conf.get("fc_dim", primitive_conf.get("fc_dim", 128)) if isinstance(base_conf, dict) else primitive_conf.get("fc_dim", 128)
+            base_kernel = base_conf.get("kernel_size", primitive_conf.get("kernel_size", 5)) if isinstance(base_conf, dict) else primitive_conf.get("kernel_size", 5)
+            base_operator = PrimitiveOperator(
+                modes=base_modes,
+                width=base_width,
+                depth=base_depth,
+                input_channels=input_channels,
+                output_channels=output_channels,
+                fc_dim=base_fc_dim,
+                primitive_type=base_type,
+                kernel_size=base_kernel,
+            )
+
+    total_primitives = num_primitives + (1 if base_operator is not None else 0)
+    always_on_index = total_primitives - 1 if base_operator is not None else None
+
     num_datasets = len(dataset_specs)
     equation_terms = data_conf.get("equation_terms", [])
     equation_text_dim = int(data_conf.get("equation_text_dim", 0))
     equation_dim = len(equation_terms) + equation_text_dim
     if equation_dim == 0:
         equation_dim = router_conf.get("equation_dim", 0)
-    router = Router(
-        num_primitives=num_primitives,
-        state_channels=output_channels,
-        hidden_dim=router_conf.get("hidden_dim", 64),
-        top_k=router_conf.get("top_k", 2),
-        stats=router_conf.get("stats", ["mean", "std", "min", "max"]),
-        local_segments=router_conf.get("local_segments", 0),
-        local_stats=router_conf.get("local_stats", ["mean", "std"]),
-        fft_bins=router_conf.get("fft_bins", 0),
-        equation_dim=equation_dim,
-        pde_param_dim=router_conf.get("pde_param_dim", 0),
-        num_datasets=num_datasets,
-        dataset_embed_dim=router_conf.get("dataset_embed_dim", 8),
-    )
+    router_type = str(router_conf.get("type", "mlp")).lower()
+    if router_type in ("transformer", "attn", "attention"):
+        router = TransformerRouter(
+            num_primitives=total_primitives,
+            state_channels=output_channels,
+            hidden_dim=router_conf.get("d_model", router_conf.get("hidden_dim", 64)),
+            top_k=router_conf.get("top_k", 2),
+            stats=router_conf.get("stats", ["mean", "std", "min", "max"]),
+            local_segments=router_conf.get("local_segments", 0),
+            local_stats=router_conf.get("local_stats", ["mean", "std"]),
+            fft_bins=router_conf.get("fft_bins", 0),
+            equation_dim=equation_dim,
+            pde_param_dim=router_conf.get("pde_param_dim", 0),
+            num_datasets=num_datasets,
+            dataset_embed_dim=router_conf.get("dataset_embed_dim", 8),
+            code_dim=router_conf.get("code_dim", 0),
+            code_as_weight=router_conf.get("code_as_weight", True),
+            use_state_tokens=router_conf.get("use_state_tokens", True),
+            state_downsample=router_conf.get("state_downsample", 4),
+            use_stats_token=router_conf.get("use_stats_token", True),
+            n_layers=router_conf.get("n_layers", 2),
+            n_heads=router_conf.get("n_heads", 4),
+            ff_dim=router_conf.get("ff_dim"),
+            dropout=router_conf.get("dropout", 0.0),
+            use_primitive_queries=router_conf.get("use_primitive_queries", True),
+            always_on_index=always_on_index,
+        )
+    else:
+        router = Router(
+            num_primitives=total_primitives,
+            state_channels=output_channels,
+            hidden_dim=router_conf.get("hidden_dim", 64),
+            top_k=router_conf.get("top_k", 2),
+            stats=router_conf.get("stats", ["mean", "std", "min", "max"]),
+            local_segments=router_conf.get("local_segments", 0),
+            local_stats=router_conf.get("local_stats", ["mean", "std"]),
+            fft_bins=router_conf.get("fft_bins", 0),
+            equation_dim=equation_dim,
+            pde_param_dim=router_conf.get("pde_param_dim", 0),
+            num_datasets=num_datasets,
+            dataset_embed_dim=router_conf.get("dataset_embed_dim", 8),
+            code_dim=router_conf.get("code_dim", 0),
+            code_as_weight=router_conf.get("code_as_weight", True),
+            spatial=router_conf.get("spatial", False),
+            spatial_kernel=router_conf.get("spatial_kernel", 3),
+            spatial_downsample=router_conf.get("spatial_downsample", 1),
+            spatial_use_state=router_conf.get("spatial_use_state", True),
+            spatial_hidden_dim=router_conf.get("spatial_hidden_dim"),
+            always_on_index=always_on_index,
+        )
 
     agg_conf = config.get("model", {}).get("aggregator", {})
     agg_type = agg_conf.get("type", "linear")
     agg_hidden = int(agg_conf.get("hidden_dim", 32))
-    aggregator = PrimitiveAggregator(num_primitives, agg_type=agg_type, hidden_dim=agg_hidden)
+    router_code_dim = int(router_conf.get("code_dim", 0))
+    agg_code_dim = int(agg_conf.get("code_dim", router_code_dim))
+    aggregator = PrimitiveAggregator(
+        total_primitives,
+        agg_type=agg_type,
+        hidden_dim=agg_hidden,
+        output_channels=output_channels,
+        code_dim=agg_code_dim,
+    )
 
-    model = PrimitiveCNO(primitives, router, output_channels, aggregator=aggregator)
+    model = PrimitiveCNO(
+        primitives,
+        router,
+        output_channels,
+        aggregator=aggregator,
+        base_operator=base_operator,
+    )
     model = model.cuda() if torch.cuda.is_available() else model
 
     opt = optim.Adam(model.parameters(), lr=config["training"]["learning_rate"])
@@ -237,15 +331,16 @@ def main(config_path):
     device = next(model.parameters()).device
 
     for epoch in range(1, epochs + 1):
+        epoch_start = time.perf_counter()
         if warmup_epochs > 0:
-            router.top_k = num_primitives if epoch <= warmup_epochs else base_top_k
+            router.top_k = router.num_primitives if epoch <= warmup_epochs else base_top_k
         model.train()
         train_loss = 0.0
         if epochs > 1:
             ss_prob = ss_start + (ss_end - ss_start) * (epoch - 1) / (epochs - 1)
         else:
             ss_prob = ss_end
-        train_pbar = tqdm(train_loader, desc=f"Train {epoch}/{epochs}", leave=False)
+        train_pbar = tqdm(train_loader, desc=f"Train {epoch}/{epochs}", leave=False, **TQDM_KWARGS)
         for batch in train_pbar:
             u_t, u_tp1, pde_params, dataset_id, equation, meta = _unpack_batch(
                 batch, device=device, return_meta=True
@@ -268,7 +363,7 @@ def main(config_path):
                 t_idx = t_idx.to("cpu")
 
             for step in range(1, rollout_steps + 1):
-                use_sparse = sparse_primitives and router.top_k < num_primitives
+                use_sparse = sparse_primitives and router.top_k < router.num_primitives
                 if diversity_weight > 0:
                     pred, weights, _, delta_stack = model(
                         current_input,
@@ -317,13 +412,18 @@ def main(config_path):
                     weight_sum = weight_sum + step_weight
 
                 if entropy_weight > 0:
-                    entropy = -(weights * torch.log(weights + 1e-8)).sum(dim=-1).mean()
+                    if weights.dim() == 3 and weights.size(1) == router.num_primitives:
+                        entropy = -(weights * torch.log(weights + 1e-8)).sum(dim=1).mean()
+                    else:
+                        entropy = -(weights * torch.log(weights + 1e-8)).sum(dim=-1).mean()
                     total_loss = total_loss + entropy_weight * entropy
                 if diversity_weight > 0 and step == 1:
                     diversity = _diversity_penalty(delta_stack)
                     total_loss = total_loss + diversity_weight * diversity
                 if load_balance_weight > 0:
-                    total_loss = total_loss + load_balance_weight * _load_balance_loss(weights)
+                    total_loss = total_loss + load_balance_weight * _load_balance_loss(
+                        weights, router.num_primitives, ignore_index=always_on_index
+                    )
 
                 if step < rollout_steps:
                     if ss_prob > 0:
@@ -357,7 +457,7 @@ def main(config_path):
                 total_batches = 0
                 for name, loader, _, _ in val_loaders:
                     ds_loss = 0.0
-                    val_pbar = tqdm(loader, desc=f"Val {name} {epoch}/{epochs}", leave=False)
+                    val_pbar = tqdm(loader, desc=f"Val {name} {epoch}/{epochs}", leave=False, **TQDM_KWARGS)
                     for batch in val_pbar:
                         u_t, u_tp1, pde_params, dataset_id, equation = _unpack_batch(
                             batch, device=next(model.parameters()).device
@@ -384,10 +484,11 @@ def main(config_path):
             val_loss = train_loss
 
         logger.info(
-            "[Epoch %d] Train NRMSE: %.6f, Val NRMSE: %.6f",
+            "[Epoch %d] Train NRMSE: %.6f, Val NRMSE: %.6f, time: %.1fs",
             epoch,
             train_loss,
             val_loss,
+            time.perf_counter() - epoch_start,
         )
         train_history.append(train_loss)
         val_history.append(val_loss)

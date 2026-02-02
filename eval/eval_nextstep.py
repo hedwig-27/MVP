@@ -98,8 +98,9 @@ def evaluate_model(model_path, data_conf, split, logger, run_dir):
 
     for name, loader, _, _ in loaders:
         usage_counts = None
-        if hasattr(model, "route") and hasattr(model, "num_primitives"):
-            usage_counts = torch.zeros(model.num_primitives, dtype=torch.long)
+        if hasattr(model, "route") and (hasattr(model, "total_primitives") or hasattr(model, "num_primitives")):
+            total = getattr(model, "total_primitives", model.num_primitives)
+            usage_counts = torch.zeros(total, dtype=torch.long)
         ds_loss = 0.0
         with torch.no_grad():
             pbar = tqdm(loader, desc=f"Eval {name}", leave=False)

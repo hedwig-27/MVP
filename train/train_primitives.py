@@ -504,6 +504,7 @@ def main(config_path):
         ss_conf = train_conf.get("scheduled_sampling", {})
         ss_start = float(ss_conf.get("start", 0.0))
         ss_end = float(ss_conf.get("end", 0.0))
+        grad_clip = float(train_conf.get("grad_clip", 0.0))
 
         stages = []
         if base_epochs > 0 and (residual_epochs > 0 or joint_epochs > 0):
@@ -534,15 +535,18 @@ def main(config_path):
                 epoch_start = time.perf_counter()
                 model.train()
                 train_loss = 0.0
-                if rollout_steps > 1:
+                stage_rollout_steps = rollout_steps if (use_terms or use_residual) else 1
+                if stage_rollout_steps > 1:
                     if total_epochs > 1:
                         ss_prob = ss_start + (ss_end - ss_start) * (global_epoch - 1) / (total_epochs - 1)
                     else:
                         ss_prob = ss_end
+                else:
+                    ss_prob = 0.0
                 train_pbar = tqdm(train_loader, desc=f"{stage_name} {global_epoch}", leave=False, **TQDM_KWARGS)
                 for batch in train_pbar:
                     u_t, u_tp1, pde_params, dataset_id, equation, meta = _unpack_batch(
-                        batch, device=device, return_meta=rollout_steps > 1
+                        batch, device=device, return_meta=stage_rollout_steps > 1
                     )
                     if dataset_id is not None and dataset_id_dropout > 0.0:
                         if torch.rand(1).item() < dataset_id_dropout:
@@ -567,7 +571,7 @@ def main(config_path):
                     if t_idx is not None:
                         t_idx = t_idx.to("cpu")
 
-                    for step in range(1, rollout_steps + 1):
+                    for step in range(1, stage_rollout_steps + 1):
                         if step == 1 and term_align_weight > 0 and use_terms:
                             pred, parts = model(
                                 current_input,
@@ -629,8 +633,8 @@ def main(config_path):
                             )
                             total_loss = total_loss + load_balance_weight * lb
 
-                        if step < rollout_steps:
-                            if rollout_steps > 1 and ss_prob > 0:
+                        if step < stage_rollout_steps:
+                            if stage_rollout_steps > 1 and ss_prob > 0:
                                 use_pred = torch.rand(pred.size(0), device=pred.device) < ss_prob
                                 mask = use_pred & valid
                                 mask = mask.view(-1, 1, 1)
@@ -650,6 +654,8 @@ def main(config_path):
                         loss = loss + term_align_weight * align_loss
 
                     loss.backward()
+                    if grad_clip and grad_clip > 0:
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
                     opt.step()
                     train_loss += loss.item()
                     train_pbar.set_postfix(loss=loss.item())

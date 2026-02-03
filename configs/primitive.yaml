@@ -127,6 +127,7 @@ training:
   joint_finetune_epochs: 10
   learning_rate: 0.001
   finetune_lr: 0.0003
+  grad_clip: 1.0
   dataset_id_dropout: 0.5
   term_align_weight: 0.1
   load_balance_weight: 0.01

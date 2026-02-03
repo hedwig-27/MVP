@@ -868,6 +868,8 @@ class TermNet(nn.Module):
             nn.GELU(),
             nn.Conv1d(hidden_dim, out_channels, kernel_size=1),
         )
+        nn.init.zeros_(self.net[-1].weight)
+        nn.init.zeros_(self.net[-1].bias)
 
     def forward(self, feats):
         # feats: (B, X, F)
@@ -1050,13 +1052,16 @@ class CompositePDEModel(nn.Module):
         return_parts=False,
         return_terms=False,
         sparse_primitives=False,
+        use_base=True,
+        use_terms=True,
+        use_residual=True,
     ):
         u_state = u_t[..., : self.output_channels]
         grid = u_t[..., self.output_channels :] if u_t.size(-1) > self.output_channels else None
         cond = self._build_cond(pde_params, equation, dataset_id)
 
         delta_base = torch.zeros_like(u_state)
-        if self.base_operator is not None:
+        if use_base and self.base_operator is not None:
             delta_base = self.base_operator(u_t, cond=cond)
 
         coeffs = None
@@ -1065,7 +1070,7 @@ class CompositePDEModel(nn.Module):
         delta_terms = torch.zeros_like(u_state)
         term_outputs = {}
         term_features = {}
-        if self.term_library is not None:
+        if use_terms and self.term_library is not None:
             if return_terms:
                 delta_terms, term_outputs, term_features = self.term_library(
                     u_state, coeffs=coeffs, cond=cond, grid=grid, return_terms=True
@@ -1076,7 +1081,7 @@ class CompositePDEModel(nn.Module):
         delta_res = torch.zeros_like(u_state)
         weights = None
         topk_idx = None
-        if self.residual_experts and self.router is not None:
+        if use_residual and self.residual_experts and self.router is not None:
             weights, topk_idx, _ = self.router(
                 u_state, pde_params, dataset_id, equation, return_topk=True
             )

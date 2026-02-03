@@ -500,21 +500,25 @@ def main(config_path):
 
         stages = []
         if base_epochs > 0 and (residual_epochs > 0 or joint_epochs > 0):
-            stages.append(("base", base_epochs, True, False, False, lr))
+            stages.append(("base", base_epochs, True, False, False, True, False, False, lr))
         if residual_epochs > 0:
-            stages.append(("residual", residual_epochs, False, True, True, lr))
+            # keep base active but frozen so residual learns correction
+            stages.append(("residual", residual_epochs, False, True, True, True, True, True, lr))
         if joint_epochs > 0:
-            stages.append(("joint", joint_epochs, True, True, True, finetune_lr))
+            stages.append(("joint", joint_epochs, True, True, True, True, True, True, finetune_lr))
         if not stages:
-            stages.append(("joint", base_epochs, True, True, True, lr))
+            stages.append(("joint", base_epochs, True, True, True, True, True, True, lr))
 
         global_epoch = 0
-        for stage_name, stage_epochs, train_base, train_terms, train_residual, stage_lr in stages:
+        for stage_name, stage_epochs, train_base, train_terms, train_residual, use_base, use_terms, use_residual, stage_lr in stages:
             logger.info("Stage %s: epochs=%d lr=%.6f", stage_name, stage_epochs, stage_lr)
             _set_requires_grad(model.base_operator, train_base)
             _set_requires_grad(model.term_library, train_terms)
             _set_requires_grad(model.residual_experts, train_residual)
             _set_requires_grad(model.router, train_residual)
+            use_base = bool(use_base and model.base_operator is not None)
+            use_terms = bool(use_terms and model.term_library is not None)
+            use_residual = bool(use_residual and model.residual_experts and model.router is not None)
 
             opt = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=stage_lr)
             for epoch in range(1, stage_epochs + 1):
@@ -534,7 +538,8 @@ def main(config_path):
                     opt.zero_grad()
                     weights = None
                     align_loss = 0.0
-                    if term_align_weight > 0:
+
+                    if term_align_weight > 0 and use_terms:
                         pred, parts = model(
                             u_t,
                             pde_params=pde_params,
@@ -542,6 +547,9 @@ def main(config_path):
                             equation=equation,
                             return_parts=True,
                             return_terms=True,
+                            use_base=use_base,
+                            use_terms=use_terms,
+                            use_residual=use_residual,
                         )
                         weights = parts.get("residual_weights")
                         align_loss = _term_align_loss(
@@ -556,10 +564,13 @@ def main(config_path):
                             dataset_id=dataset_id,
                             equation=equation,
                             return_weights=True,
+                            use_base=use_base,
+                            use_terms=use_terms,
+                            use_residual=use_residual,
                         )
 
                     loss = _nrmse(pred, u_tp1)
-                    if term_align_weight > 0:
+                    if term_align_weight > 0 and use_terms:
                         loss = loss + term_align_weight * align_loss
                     if load_balance_weight > 0 and weights is not None:
                         loss = loss + load_balance_weight * _load_balance_loss(
@@ -591,6 +602,9 @@ def main(config_path):
                                     pde_params=pde_params,
                                     dataset_id=dataset_id,
                                     equation=equation,
+                                    use_base=use_base,
+                                    use_terms=use_terms,
+                                    use_residual=use_residual,
                                 )
                                 loss = _nrmse(pred, u_tp1)
                                 ds_loss += loss.item()
@@ -617,7 +631,9 @@ def main(config_path):
                 train_history.append(train_loss)
                 val_history.append(val_loss)
 
-                if val_loss < best_val_loss:
+                has_aux = bool(model.term_library is not None or (model.residual_experts and model.router))
+                track_best = (not has_aux) or use_terms or use_residual
+                if track_best and val_loss < best_val_loss:
                     best_val_loss = val_loss
                     torch.save(model, output_model)
 

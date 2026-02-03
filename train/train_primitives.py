@@ -335,6 +335,7 @@ def main(config_path):
                 spatial_hidden_dim=router_conf.get("spatial_hidden_dim"),
             )
 
+        delta_clip = model_conf.get("delta_clip", None)
         model = CompositePDEModel(
             base_operator=base_operator,
             term_library=term_library,
@@ -346,6 +347,7 @@ def main(config_path):
             use_dataset_embed=use_dataset_embed,
             dataset_embed_dim=router_conf.get("dataset_embed_dim", 8),
             num_datasets=num_datasets,
+            delta_clip=delta_clip,
         )
         always_on_index = None
         total_primitives = num_residuals
@@ -497,6 +499,11 @@ def main(config_path):
         dataset_id_dropout = float(train_conf.get("dataset_id_dropout", 0.0))
         load_balance_weight = float(train_conf.get("load_balance_weight", 0.0))
         term_align_weight = float(train_conf.get("term_align_weight", 0.0))
+        rollout_steps = max(1, int(train_conf.get("rollout_steps", 1)))
+        rollout_gamma = float(train_conf.get("rollout_gamma", 1.0))
+        ss_conf = train_conf.get("scheduled_sampling", {})
+        ss_start = float(ss_conf.get("start", 0.0))
+        ss_end = float(ss_conf.get("end", 0.0))
 
         stages = []
         if base_epochs > 0 and (residual_epochs > 0 or joint_epochs > 0):
@@ -509,6 +516,7 @@ def main(config_path):
         if not stages:
             stages.append(("joint", base_epochs, True, True, True, True, True, True, lr))
 
+        total_epochs = sum(s[1] for s in stages)
         global_epoch = 0
         for stage_name, stage_epochs, train_base, train_terms, train_residual, use_base, use_terms, use_residual, stage_lr in stages:
             logger.info("Stage %s: epochs=%d lr=%.6f", stage_name, stage_epochs, stage_lr)
@@ -526,10 +534,15 @@ def main(config_path):
                 epoch_start = time.perf_counter()
                 model.train()
                 train_loss = 0.0
+                if rollout_steps > 1:
+                    if total_epochs > 1:
+                        ss_prob = ss_start + (ss_end - ss_start) * (global_epoch - 1) / (total_epochs - 1)
+                    else:
+                        ss_prob = ss_end
                 train_pbar = tqdm(train_loader, desc=f"{stage_name} {global_epoch}", leave=False, **TQDM_KWARGS)
                 for batch in train_pbar:
-                    u_t, u_tp1, pde_params, dataset_id, equation = _unpack_batch(
-                        batch, device=device, return_meta=False
+                    u_t, u_tp1, pde_params, dataset_id, equation, meta = _unpack_batch(
+                        batch, device=device, return_meta=rollout_steps > 1
                     )
                     if dataset_id is not None and dataset_id_dropout > 0.0:
                         if torch.rand(1).item() < dataset_id_dropout:
@@ -538,44 +551,103 @@ def main(config_path):
                     opt.zero_grad()
                     weights = None
                     align_loss = 0.0
+                    total_loss = 0.0
+                    weight_sum = 0.0
 
-                    if term_align_weight > 0 and use_terms:
-                        pred, parts = model(
-                            u_t,
-                            pde_params=pde_params,
-                            dataset_id=dataset_id,
-                            equation=equation,
-                            return_parts=True,
-                            return_terms=True,
-                            use_base=use_base,
-                            use_terms=use_terms,
-                            use_residual=use_residual,
-                        )
-                        weights = parts.get("residual_weights")
-                        align_loss = _term_align_loss(
-                            parts.get("term_outputs", {}),
-                            parts.get("term_features", {}),
-                            output_channels,
-                        )
+                    grid = u_t[..., output_channels:] if include_grid else None
+                    current_input = u_t
+
+                    sample_ids = None
+                    t_idx = None
+                    if meta and isinstance(meta, dict):
+                        sample_ids = meta.get("sample_id")
+                        t_idx = meta.get("t_idx")
+                    if sample_ids is not None:
+                        sample_ids = sample_ids.to("cpu")
+                    if t_idx is not None:
+                        t_idx = t_idx.to("cpu")
+
+                    for step in range(1, rollout_steps + 1):
+                        if step == 1 and term_align_weight > 0 and use_terms:
+                            pred, parts = model(
+                                current_input,
+                                pde_params=pde_params,
+                                dataset_id=dataset_id,
+                                equation=equation,
+                                return_parts=True,
+                                return_terms=True,
+                                use_base=use_base,
+                                use_terms=use_terms,
+                                use_residual=use_residual,
+                            )
+                            weights = parts.get("residual_weights")
+                            align_loss = _term_align_loss(
+                                parts.get("term_outputs", {}),
+                                parts.get("term_features", {}),
+                                output_channels,
+                            )
+                        else:
+                            pred, weights, _ = model(
+                                current_input,
+                                pde_params=pde_params,
+                                dataset_id=dataset_id,
+                                equation=equation,
+                                return_weights=True,
+                                use_base=use_base,
+                                use_terms=use_terms,
+                                use_residual=use_residual,
+                            )
+
+                        if step == 1:
+                            gt = u_tp1
+                            valid = torch.ones(gt.size(0), dtype=torch.bool, device=device)
+                        else:
+                            gt = pred.detach().clone()
+                            valid = torch.ones(gt.size(0), dtype=torch.bool, device=device)
+                            if sample_ids is not None and t_idx is not None and dataset_id is not None:
+                                for i in range(gt.size(0)):
+                                    ds_id = int(dataset_id[i].item())
+                                    ds = dataset_map.get(ds_id)
+                                    if ds is None:
+                                        valid[i] = False
+                                        continue
+                                    next_idx = int(t_idx[i].item()) + step
+                                    if next_idx >= ds.timesteps:
+                                        valid[i] = False
+                                        continue
+                                    gt[i] = _read_future_state(ds, int(sample_ids[i].item()), next_idx, device)
+
+                        if valid.any():
+                            step_loss = _nrmse(pred[valid], gt[valid])
+                            step_weight = rollout_gamma ** (step - 1)
+                            total_loss = total_loss + step_weight * step_loss
+                            weight_sum = weight_sum + step_weight
+
+                        if load_balance_weight > 0 and weights is not None:
+                            lb = _load_balance_loss(
+                                weights, getattr(model.router, "num_primitives", weights.size(-1))
+                            )
+                            total_loss = total_loss + load_balance_weight * lb
+
+                        if step < rollout_steps:
+                            if rollout_steps > 1 and ss_prob > 0:
+                                use_pred = torch.rand(pred.size(0), device=pred.device) < ss_prob
+                                mask = use_pred & valid
+                                mask = mask.view(-1, 1, 1)
+                                next_state = torch.where(mask, pred, gt.detach())
+                            else:
+                                next_state = gt.detach()
+                            if include_grid:
+                                current_input = torch.cat([next_state, grid], dim=-1)
+                            else:
+                                current_input = next_state
+
+                    if weight_sum > 0:
+                        loss = total_loss / weight_sum
                     else:
-                        pred, weights, _ = model(
-                            u_t,
-                            pde_params=pde_params,
-                            dataset_id=dataset_id,
-                            equation=equation,
-                            return_weights=True,
-                            use_base=use_base,
-                            use_terms=use_terms,
-                            use_residual=use_residual,
-                        )
-
-                    loss = _nrmse(pred, u_tp1)
+                        loss = total_loss
                     if term_align_weight > 0 and use_terms:
                         loss = loss + term_align_weight * align_loss
-                    if load_balance_weight > 0 and weights is not None:
-                        loss = loss + load_balance_weight * _load_balance_loss(
-                            weights, getattr(model.router, "num_primitives", weights.size(-1))
-                        )
 
                     loss.backward()
                     opt.step()

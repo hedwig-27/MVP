@@ -216,6 +216,13 @@ python eval/eval_suite.py --config configs/primitive.yaml --model outputs/latest
 
 ## 版本记录
 
+### 20260203-2
+
+- 稳定性改造：训练加入多步 rollout（rollout_steps=4 + scheduled sampling），强调多步一致性。
+- 输出增量加入裁剪（delta_clip=1.0），避免 rollout 时爆炸。
+- 路由稀疏度调整：top_k=3。
+- 归一化改为按数据集统计；并追加 mean/std 到 params（pde_param_dim=6）。
+
 ### 20260203
 
 - 孤注一掷升级：启用 composite（base + term library + residual experts），分阶段训练（base/residual/joint）。
@@ -246,6 +253,7 @@ python eval/eval_suite.py --config configs/primitive.yaml --model outputs/latest
 **记录说明**
 - 所有数值均为 **NRMSE**。
 - 当前记录 20260118/20260127/20260203；其中 20260118 对应 `outputs/primitive_20260118_202629`，20260127 对应 `outputs/primitive_20260127_150601`，20260203 对应 `outputs/primitive_20260203_142150`。
+- 20260203-2 为稳定性改造版本，结果待更新。
 
 **训练/验证**
 

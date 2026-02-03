@@ -118,12 +118,15 @@ class DatasetWithMeta(Dataset):
         equation_terms: Optional[List[str]] = None,
         dt: Optional[float] = None,
         append_dt: bool = False,
+        stats: Optional[Dict[str, float]] = None,
+        append_stats: bool = False,
     ):
         self.dataset = dataset
         self.dataset_id = int(dataset_id)
         self.dataset_name = dataset_name
         self.params = params
         self.param_names = param_names or []
+        self.stats = stats if stats is not None else getattr(dataset, "stats", None)
         self.dt = float(dt) if dt is not None else None
         if append_dt:
             dt_val = self.dt if self.dt is not None else 1.0
@@ -134,6 +137,16 @@ class DatasetWithMeta(Dataset):
             else:
                 self.params = torch.cat([self.params, dt_tensor], dim=0)
                 self.param_names = list(self.param_names) + ["dt"]
+        if append_stats:
+            mean = float(self.stats.get("mean", 0.0)) if self.stats is not None else 0.0
+            std = float(self.stats.get("std", 1.0)) if self.stats is not None else 1.0
+            stats_tensor = torch.tensor([mean, std], dtype=torch.float32)
+            if self.params is None:
+                self.params = stats_tensor
+                self.param_names = ["mean", "std"]
+            else:
+                self.params = torch.cat([self.params, stats_tensor], dim=0)
+                self.param_names = list(self.param_names) + ["mean", "std"]
         self.equation = equation
         self.equation_terms = equation_terms or []
 
@@ -242,9 +255,48 @@ def build_loaders(data_conf: Dict[str, Any], split: str = "train"):
         name = _dataset_name(data_conf)
         params, param_names = _parse_params(data_conf.get("params"))
         append_dt = bool(data_conf.get("append_dt_to_params", False))
-        wrapped_train = DatasetWithMeta(train_ds, 0, name, params, param_names, dt=getattr(train_ds, "dt", None), append_dt=append_dt)
-        wrapped_val = DatasetWithMeta(val_ds, 0, name, params, param_names, dt=getattr(val_ds, "dt", None), append_dt=append_dt) if val_ds else None
-        wrapped_test = DatasetWithMeta(test_ds, 0, name, params, param_names, dt=getattr(test_ds, "dt", None), append_dt=append_dt) if test_ds else None
+        append_stats = bool(data_conf.get("append_stats_to_params", False))
+        wrapped_train = DatasetWithMeta(
+            train_ds,
+            0,
+            name,
+            params,
+            param_names,
+            dt=getattr(train_ds, "dt", None),
+            append_dt=append_dt,
+            stats=getattr(train_ds, "stats", None),
+            append_stats=append_stats,
+        )
+        wrapped_val = (
+            DatasetWithMeta(
+                val_ds,
+                0,
+                name,
+                params,
+                param_names,
+                dt=getattr(val_ds, "dt", None),
+                append_dt=append_dt,
+                stats=getattr(val_ds, "stats", None),
+                append_stats=append_stats,
+            )
+            if val_ds
+            else None
+        )
+        wrapped_test = (
+            DatasetWithMeta(
+                test_ds,
+                0,
+                name,
+                params,
+                param_names,
+                dt=getattr(test_ds, "dt", None),
+                append_dt=append_dt,
+                stats=getattr(test_ds, "stats", None),
+                append_stats=append_stats,
+            )
+            if test_ds
+            else None
+        )
 
         batch_size = data_conf.get("batch_size", 32)
         num_workers = data_conf.get("num_workers", 0)
@@ -302,6 +354,7 @@ def build_loaders(data_conf: Dict[str, Any], split: str = "train"):
     default_conf.pop("eval_equation_datasets", None)
     global_normalize = bool(default_conf.get("global_normalize", False))
     append_dt = bool(default_conf.get("append_dt_to_params", False))
+    append_stats = bool(default_conf.get("append_stats_to_params", False))
     if global_normalize:
         default_conf["normalize"] = True
     eval_datasets_conf = data_conf.get("eval_datasets")
@@ -342,17 +395,52 @@ def build_loaders(data_conf: Dict[str, Any], split: str = "train"):
         weight = float(merged.get("weight", 1.0))
 
         wrapped_train = DatasetWithMeta(
-            train_ds, idx, name, params, param_names, equation, eq_terms,
-            dt=getattr(train_ds, "dt", None), append_dt=append_dt
+            train_ds,
+            idx,
+            name,
+            params,
+            param_names,
+            equation,
+            eq_terms,
+            dt=getattr(train_ds, "dt", None),
+            append_dt=append_dt,
+            stats=getattr(train_ds, "stats", None),
+            append_stats=append_stats,
         )
-        wrapped_val = DatasetWithMeta(
-            val_ds, idx, name, params, param_names, equation, eq_terms,
-            dt=getattr(val_ds, "dt", None), append_dt=append_dt
-        ) if val_ds else None
-        wrapped_test = DatasetWithMeta(
-            test_ds, idx, name, params, param_names, equation, eq_terms,
-            dt=getattr(test_ds, "dt", None), append_dt=append_dt
-        ) if test_ds else None
+        wrapped_val = (
+            DatasetWithMeta(
+                val_ds,
+                idx,
+                name,
+                params,
+                param_names,
+                equation,
+                eq_terms,
+                dt=getattr(val_ds, "dt", None),
+                append_dt=append_dt,
+                stats=getattr(val_ds, "stats", None),
+                append_stats=append_stats,
+            )
+            if val_ds
+            else None
+        )
+        wrapped_test = (
+            DatasetWithMeta(
+                test_ds,
+                idx,
+                name,
+                params,
+                param_names,
+                equation,
+                eq_terms,
+                dt=getattr(test_ds, "dt", None),
+                append_dt=append_dt,
+                stats=getattr(test_ds, "stats", None),
+                append_stats=append_stats,
+            )
+            if test_ds
+            else None
+        )
 
         train_loader = DataLoader(
             wrapped_train,
@@ -437,9 +525,18 @@ def build_eval_loaders(data_conf: Dict[str, Any], split: str = "test"):
             text_dim=equation_text_dim,
         )
         append_dt = bool(data_conf.get("append_dt_to_params", False))
+        append_stats = bool(data_conf.get("append_stats_to_params", False))
         wrapped = DatasetWithMeta(
-            ds, 0, name, params, equation=equation, equation_terms=eq_terms,
-            dt=getattr(ds, "dt", None), append_dt=append_dt
+            ds,
+            0,
+            name,
+            params,
+            equation=equation,
+            equation_terms=eq_terms,
+            dt=getattr(ds, "dt", None),
+            append_dt=append_dt,
+            stats=getattr(ds, "stats", None),
+            append_stats=append_stats,
         )
         batch_size = data_conf.get("batch_size", 32)
         num_workers = data_conf.get("num_workers", 0)
@@ -462,6 +559,7 @@ def build_eval_loaders(data_conf: Dict[str, Any], split: str = "test"):
     default_conf.pop("eval_equation_datasets", None)
     global_normalize = bool(default_conf.get("global_normalize", False))
     append_dt = bool(default_conf.get("append_dt_to_params", False))
+    append_stats = bool(default_conf.get("append_stats_to_params", False))
     if global_normalize:
         default_conf["normalize"] = True
     equation_terms = data_conf.get("equation_terms")
@@ -495,8 +593,17 @@ def build_eval_loaders(data_conf: Dict[str, Any], split: str = "test"):
             text_dim=equation_text_dim,
         )
         wrapped = DatasetWithMeta(
-            dataset, idx, name, params, param_names, equation, eq_terms,
-            dt=getattr(dataset, "dt", None), append_dt=append_dt
+            dataset,
+            idx,
+            name,
+            params,
+            param_names,
+            equation,
+            eq_terms,
+            dt=getattr(dataset, "dt", None),
+            append_dt=append_dt,
+            stats=getattr(dataset, "stats", None),
+            append_stats=append_stats,
         )
         loader = DataLoader(
             wrapped,

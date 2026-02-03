@@ -546,7 +546,7 @@ def main(config_path):
                 train_pbar = tqdm(train_loader, desc=f"{stage_name} {global_epoch}", leave=False, **TQDM_KWARGS)
                 for batch in train_pbar:
                     u_t, u_tp1, pde_params, dataset_id, equation, meta = _unpack_batch(
-                        batch, device=device, return_meta=stage_rollout_steps > 1
+                        batch, device=device, return_meta=True
                     )
                     if dataset_id is not None and dataset_id_dropout > 0.0:
                         if torch.rand(1).item() < dataset_id_dropout:

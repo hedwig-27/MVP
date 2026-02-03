@@ -524,7 +524,7 @@ def main(config_path):
                 train_loss = 0.0
                 train_pbar = tqdm(train_loader, desc=f"{stage_name} {global_epoch}", leave=False, **TQDM_KWARGS)
                 for batch in train_pbar:
-                    u_t, u_tp1, pde_params, dataset_id, equation, _ = _unpack_batch(
+                    u_t, u_tp1, pde_params, dataset_id, equation = _unpack_batch(
                         batch, device=device, return_meta=False
                     )
                     if dataset_id is not None and dataset_id_dropout > 0.0:

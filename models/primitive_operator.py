@@ -1,6 +1,7 @@
+import torch
 import torch.nn as nn
 
-from models.fno1d import FNO1D
+from models.fno1d import FNO1D, ConditionalFNO1D
 
 
 class PrimitiveOperator(nn.Module):
@@ -17,20 +18,33 @@ class PrimitiveOperator(nn.Module):
         fc_dim=128,
         primitive_type="fno",
         kernel_size=5,
+        cond_dim=0,
     ):
         super().__init__()
         self.output_channels = output_channels
         self.primitive_type = primitive_type
+        self.cond_dim = int(cond_dim)
 
         if primitive_type == "fno":
-            self.net = FNO1D(
-                modes=modes,
-                width=width,
-                depth=depth,
-                input_channels=input_channels,
-                output_channels=output_channels,
-                fc_dim=fc_dim,
-            )
+            if self.cond_dim > 0:
+                self.net = ConditionalFNO1D(
+                    modes=modes,
+                    width=width,
+                    depth=depth,
+                    input_channels=input_channels,
+                    output_channels=output_channels,
+                    fc_dim=fc_dim,
+                    cond_dim=self.cond_dim,
+                )
+            else:
+                self.net = FNO1D(
+                    modes=modes,
+                    width=width,
+                    depth=depth,
+                    input_channels=input_channels,
+                    output_channels=output_channels,
+                    fc_dim=fc_dim,
+                )
         elif primitive_type == "cnn":
             padding = kernel_size // 2
             layers = []
@@ -44,11 +58,16 @@ class PrimitiveOperator(nn.Module):
         else:
             raise ValueError(f"Unknown primitive_type: {primitive_type}")
 
-    def forward(self, u_t):
+    def forward(self, u_t, cond=None):
         if self.primitive_type == "cnn":
             x = u_t.permute(0, 2, 1)
             pred_next = self.net(x).permute(0, 2, 1)
         else:
-            pred_next = self.net(u_t)
+            if self.cond_dim > 0:
+                if cond is None:
+                    cond = torch.zeros(u_t.size(0), self.cond_dim, device=u_t.device, dtype=u_t.dtype)
+                pred_next = self.net(u_t, cond)
+            else:
+                pred_next = self.net(u_t)
         u_state = u_t[..., : self.output_channels]
         return pred_next - u_state

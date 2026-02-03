@@ -18,7 +18,14 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from dataloader.multi_loader import build_loaders
-from models.primitive_composer import PrimitiveAggregator, PrimitiveCNO, Router, TransformerRouter
+from models.primitive_composer import (
+    PrimitiveAggregator,
+    PrimitiveCNO,
+    Router,
+    TransformerRouter,
+    CompositePDEModel,
+    TermLibrary,
+)
 from models.primitive_operator import PrimitiveOperator
 from utils import create_run_dir, set_latest_link, setup_logger
 
@@ -39,6 +46,44 @@ def _diversity_penalty(delta_stack):
     sim = torch.matmul(flat, flat.transpose(1, 2))
     off_diag = sim - torch.eye(ksz, device=sim.device).unsqueeze(0)
     return off_diag.abs().mean()
+
+
+def _set_requires_grad(module, flag):
+    if module is None:
+        return
+    for p in module.parameters():
+        p.requires_grad = flag
+
+
+def _term_align_loss(term_outputs, term_features, output_channels):
+    if not term_outputs or not term_features:
+        return 0.0
+    total = 0.0
+    count = 0
+    for term, out in term_outputs.items():
+        feats = term_features.get(term)
+        if feats is None:
+            continue
+        if feats.size(-1) < output_channels:
+            continue
+        # select target feature per term
+        if term == "reaction" and feats.size(-1) >= output_channels * 2:
+            u = feats[..., :output_channels]
+            u2 = feats[..., output_channels : 2 * output_channels]
+            target = u - u2
+        elif term == "sorption" and feats.size(-1) >= output_channels * 2:
+            target = feats[..., output_channels : 2 * output_channels]
+        else:
+            target = feats[..., :output_channels]
+
+        out_flat = out.reshape(out.size(0), -1)
+        tgt_flat = target.reshape(target.size(0), -1)
+        out_norm = out_flat / (out_flat.norm(dim=1, keepdim=True) + 1e-8)
+        tgt_norm = tgt_flat / (tgt_flat.norm(dim=1, keepdim=True) + 1e-8)
+        cos = (out_norm * tgt_norm).sum(dim=1).abs().mean()
+        total += 1.0 - cos
+        count += 1
+    return total / max(count, 1)
 
 
 def _save_training_plots(run_dir, train_history, val_history, val_by_dataset):
@@ -169,11 +214,9 @@ def main(config_path):
         )
 
     model_conf = config["model"]
-    num_primitives = model_conf["num_primitives"]
-    primitive_conf = model_conf["primitive"]
-    router_conf = model_conf["router"]
+    model_type = str(model_conf.get("type", "primitive")).lower()
+    router_conf = model_conf.get("router", {})
 
-    primitives = []
     if hasattr(train_loader, "streams"):
         sample_ds = train_loader.streams[0].loader.dataset
     else:
@@ -181,125 +224,413 @@ def main(config_path):
     input_channels = sample_ds.input_channels
     output_channels = sample_ds.solution_channels
 
-    for _ in range(num_primitives):
-        primitives.append(
-            PrimitiveOperator(
-                modes=primitive_conf["modes"],
-                width=primitive_conf["width"],
-                depth=primitive_conf["depth"],
-                input_channels=input_channels,
-                output_channels=output_channels,
-                fc_dim=primitive_conf.get("fc_dim", 128),
-                primitive_type=primitive_conf.get("type", "fno"),
-                kernel_size=primitive_conf.get("kernel_size", 5),
-            )
-        )
-
-    base_operator = None
-    base_conf = model_conf.get("base_operator") or model_conf.get("shared_base")
-    if base_conf:
-        enabled = True
-        if isinstance(base_conf, dict):
-            enabled = base_conf.get("enabled", True)
-        if enabled:
-            base_type = base_conf.get("type", primitive_conf.get("type", "fno")) if isinstance(base_conf, dict) else primitive_conf.get("type", "fno")
-            base_modes = base_conf.get("modes", max(1, primitive_conf["modes"] // 2)) if isinstance(base_conf, dict) else max(1, primitive_conf["modes"] // 2)
-            base_width = base_conf.get("width", max(8, primitive_conf["width"] // 2)) if isinstance(base_conf, dict) else max(8, primitive_conf["width"] // 2)
-            base_depth = base_conf.get("depth", max(1, primitive_conf["depth"] // 2)) if isinstance(base_conf, dict) else max(1, primitive_conf["depth"] // 2)
-            base_fc_dim = base_conf.get("fc_dim", primitive_conf.get("fc_dim", 128)) if isinstance(base_conf, dict) else primitive_conf.get("fc_dim", 128)
-            base_kernel = base_conf.get("kernel_size", primitive_conf.get("kernel_size", 5)) if isinstance(base_conf, dict) else primitive_conf.get("kernel_size", 5)
-            base_operator = PrimitiveOperator(
-                modes=base_modes,
-                width=base_width,
-                depth=base_depth,
-                input_channels=input_channels,
-                output_channels=output_channels,
-                fc_dim=base_fc_dim,
-                primitive_type=base_type,
-                kernel_size=base_kernel,
-            )
-
-    total_primitives = num_primitives + (1 if base_operator is not None else 0)
-    always_on_index = total_primitives - 1 if base_operator is not None else None
-
     num_datasets = len(dataset_specs)
     equation_terms = data_conf.get("equation_terms", [])
     equation_text_dim = int(data_conf.get("equation_text_dim", 0))
     equation_dim = len(equation_terms) + equation_text_dim
     if equation_dim == 0:
         equation_dim = router_conf.get("equation_dim", 0)
-    router_type = str(router_conf.get("type", "mlp")).lower()
-    if router_type in ("transformer", "attn", "attention"):
-        router = TransformerRouter(
-            num_primitives=total_primitives,
-            state_channels=output_channels,
-            hidden_dim=router_conf.get("d_model", router_conf.get("hidden_dim", 64)),
-            top_k=router_conf.get("top_k", 2),
-            stats=router_conf.get("stats", ["mean", "std", "min", "max"]),
-            local_segments=router_conf.get("local_segments", 0),
-            local_stats=router_conf.get("local_stats", ["mean", "std"]),
-            fft_bins=router_conf.get("fft_bins", 0),
-            equation_dim=equation_dim,
-            pde_param_dim=router_conf.get("pde_param_dim", 0),
-            num_datasets=num_datasets,
+
+    if model_type == "composite":
+        cond_conf = model_conf.get("cond", {})
+        use_dataset_embed = bool(cond_conf.get("use_dataset_embed", router_conf.get("use_dataset_embed", False)))
+        pde_param_dim = int(router_conf.get("pde_param_dim", 0))
+        cond_dim = pde_param_dim + equation_dim
+        if use_dataset_embed and num_datasets > 1:
+            cond_dim += int(router_conf.get("dataset_embed_dim", 8))
+
+        base_conf = model_conf.get("base_operator", {})
+        base_operator = None
+        if base_conf and base_conf.get("enabled", True):
+            base_operator = PrimitiveOperator(
+                modes=base_conf.get("modes", 16),
+                width=base_conf.get("width", 64),
+                depth=base_conf.get("depth", 4),
+                input_channels=input_channels,
+                output_channels=output_channels,
+                fc_dim=base_conf.get("fc_dim", 128),
+                primitive_type=base_conf.get("type", "fno"),
+                kernel_size=base_conf.get("kernel_size", 5),
+                cond_dim=cond_dim,
+            )
+
+        term_conf = model_conf.get("term_library", {})
+        term_library = None
+        if term_conf.get("enabled", True):
+            term_library = TermLibrary(
+                term_names=equation_terms,
+                output_channels=output_channels,
+                hidden_dim=term_conf.get("hidden_dim", 32),
+                cond_dim=cond_dim,
+                use_scale_mlp=term_conf.get("use_scale_mlp", True),
+            )
+
+        residual_conf = model_conf.get("residual", model_conf.get("primitive", {}))
+        num_residuals = int(residual_conf.get("num_experts", model_conf.get("num_primitives", 4)))
+        residual_experts = []
+        for _ in range(num_residuals):
+            residual_experts.append(
+                PrimitiveOperator(
+                    modes=residual_conf.get("modes", 8),
+                    width=residual_conf.get("width", 32),
+                    depth=residual_conf.get("depth", 3),
+                    input_channels=input_channels,
+                    output_channels=output_channels,
+                    fc_dim=residual_conf.get("fc_dim", 64),
+                    primitive_type=residual_conf.get("type", "fno"),
+                    kernel_size=residual_conf.get("kernel_size", 5),
+                    cond_dim=cond_dim,
+                )
+            )
+
+        router_type = str(router_conf.get("type", "transformer")).lower()
+        top_k = min(int(router_conf.get("top_k", num_residuals)), num_residuals)
+        if router_type in ("transformer", "attn", "attention"):
+            router = TransformerRouter(
+                num_primitives=num_residuals,
+                state_channels=output_channels,
+                hidden_dim=router_conf.get("d_model", router_conf.get("hidden_dim", 64)),
+                top_k=top_k,
+                stats=router_conf.get("stats", ["mean", "std", "min", "max"]),
+                local_segments=router_conf.get("local_segments", 0),
+                local_stats=router_conf.get("local_stats", ["mean", "std"]),
+                fft_bins=router_conf.get("fft_bins", 0),
+                equation_dim=equation_dim,
+                pde_param_dim=pde_param_dim,
+                num_datasets=num_datasets,
+                dataset_embed_dim=router_conf.get("dataset_embed_dim", 8),
+                use_dataset_embed=router_conf.get("use_dataset_embed", use_dataset_embed),
+                code_dim=router_conf.get("code_dim", 0),
+                code_as_weight=router_conf.get("code_as_weight", True),
+                use_state_tokens=router_conf.get("use_state_tokens", True),
+                state_downsample=router_conf.get("state_downsample", 4),
+                use_stats_token=router_conf.get("use_stats_token", True),
+                n_layers=router_conf.get("n_layers", 2),
+                n_heads=router_conf.get("n_heads", 4),
+                ff_dim=router_conf.get("ff_dim"),
+                dropout=router_conf.get("dropout", 0.0),
+                use_primitive_queries=router_conf.get("use_primitive_queries", True),
+            )
+        else:
+            router = Router(
+                num_primitives=num_residuals,
+                state_channels=output_channels,
+                hidden_dim=router_conf.get("hidden_dim", 64),
+                top_k=top_k,
+                stats=router_conf.get("stats", ["mean", "std", "min", "max"]),
+                local_segments=router_conf.get("local_segments", 0),
+                local_stats=router_conf.get("local_stats", ["mean", "std"]),
+                fft_bins=router_conf.get("fft_bins", 0),
+                equation_dim=equation_dim,
+                pde_param_dim=pde_param_dim,
+                num_datasets=num_datasets,
+                dataset_embed_dim=router_conf.get("dataset_embed_dim", 8),
+                use_dataset_embed=router_conf.get("use_dataset_embed", use_dataset_embed),
+                code_dim=router_conf.get("code_dim", 0),
+                code_as_weight=router_conf.get("code_as_weight", True),
+                spatial=router_conf.get("spatial", False),
+                spatial_kernel=router_conf.get("spatial_kernel", 3),
+                spatial_downsample=router_conf.get("spatial_downsample", 1),
+                spatial_use_state=router_conf.get("spatial_use_state", True),
+                spatial_hidden_dim=router_conf.get("spatial_hidden_dim"),
+            )
+
+        model = CompositePDEModel(
+            base_operator=base_operator,
+            term_library=term_library,
+            residual_experts=residual_experts,
+            router=router,
+            output_channels=output_channels,
+            term_count=len(equation_terms),
+            cond_dim=cond_dim,
+            use_dataset_embed=use_dataset_embed,
             dataset_embed_dim=router_conf.get("dataset_embed_dim", 8),
-            code_dim=router_conf.get("code_dim", 0),
-            code_as_weight=router_conf.get("code_as_weight", True),
-            use_state_tokens=router_conf.get("use_state_tokens", True),
-            state_downsample=router_conf.get("state_downsample", 4),
-            use_stats_token=router_conf.get("use_stats_token", True),
-            n_layers=router_conf.get("n_layers", 2),
-            n_heads=router_conf.get("n_heads", 4),
-            ff_dim=router_conf.get("ff_dim"),
-            dropout=router_conf.get("dropout", 0.0),
-            use_primitive_queries=router_conf.get("use_primitive_queries", True),
-            always_on_index=always_on_index,
+            num_datasets=num_datasets,
         )
+        always_on_index = None
+        total_primitives = num_residuals
     else:
-        router = Router(
-            num_primitives=total_primitives,
-            state_channels=output_channels,
-            hidden_dim=router_conf.get("hidden_dim", 64),
-            top_k=router_conf.get("top_k", 2),
-            stats=router_conf.get("stats", ["mean", "std", "min", "max"]),
-            local_segments=router_conf.get("local_segments", 0),
-            local_stats=router_conf.get("local_stats", ["mean", "std"]),
-            fft_bins=router_conf.get("fft_bins", 0),
-            equation_dim=equation_dim,
-            pde_param_dim=router_conf.get("pde_param_dim", 0),
-            num_datasets=num_datasets,
-            dataset_embed_dim=router_conf.get("dataset_embed_dim", 8),
-            code_dim=router_conf.get("code_dim", 0),
-            code_as_weight=router_conf.get("code_as_weight", True),
-            spatial=router_conf.get("spatial", False),
-            spatial_kernel=router_conf.get("spatial_kernel", 3),
-            spatial_downsample=router_conf.get("spatial_downsample", 1),
-            spatial_use_state=router_conf.get("spatial_use_state", True),
-            spatial_hidden_dim=router_conf.get("spatial_hidden_dim"),
-            always_on_index=always_on_index,
+        num_primitives = model_conf["num_primitives"]
+        primitive_conf = model_conf["primitive"]
+
+        primitives = []
+        for _ in range(num_primitives):
+            primitives.append(
+                PrimitiveOperator(
+                    modes=primitive_conf["modes"],
+                    width=primitive_conf["width"],
+                    depth=primitive_conf["depth"],
+                    input_channels=input_channels,
+                    output_channels=output_channels,
+                    fc_dim=primitive_conf.get("fc_dim", 128),
+                    primitive_type=primitive_conf.get("type", "fno"),
+                    kernel_size=primitive_conf.get("kernel_size", 5),
+                )
+            )
+
+        base_operator = None
+        base_conf = model_conf.get("base_operator") or model_conf.get("shared_base")
+        if base_conf:
+            enabled = True
+            if isinstance(base_conf, dict):
+                enabled = base_conf.get("enabled", True)
+            if enabled:
+                base_type = base_conf.get("type", primitive_conf.get("type", "fno")) if isinstance(base_conf, dict) else primitive_conf.get("type", "fno")
+                base_modes = base_conf.get("modes", max(1, primitive_conf["modes"] // 2)) if isinstance(base_conf, dict) else max(1, primitive_conf["modes"] // 2)
+                base_width = base_conf.get("width", max(8, primitive_conf["width"] // 2)) if isinstance(base_conf, dict) else max(8, primitive_conf["width"] // 2)
+                base_depth = base_conf.get("depth", max(1, primitive_conf["depth"] // 2)) if isinstance(base_conf, dict) else max(1, primitive_conf["depth"] // 2)
+                base_fc_dim = base_conf.get("fc_dim", primitive_conf.get("fc_dim", 128)) if isinstance(base_conf, dict) else primitive_conf.get("fc_dim", 128)
+                base_kernel = base_conf.get("kernel_size", primitive_conf.get("kernel_size", 5)) if isinstance(base_conf, dict) else primitive_conf.get("kernel_size", 5)
+                base_operator = PrimitiveOperator(
+                    modes=base_modes,
+                    width=base_width,
+                    depth=base_depth,
+                    input_channels=input_channels,
+                    output_channels=output_channels,
+                    fc_dim=base_fc_dim,
+                    primitive_type=base_type,
+                    kernel_size=base_kernel,
+                )
+
+        total_primitives = num_primitives + (1 if base_operator is not None else 0)
+        always_on_index = total_primitives - 1 if base_operator is not None else None
+
+        router_type = str(router_conf.get("type", "mlp")).lower()
+        if router_type in ("transformer", "attn", "attention"):
+            router = TransformerRouter(
+                num_primitives=total_primitives,
+                state_channels=output_channels,
+                hidden_dim=router_conf.get("d_model", router_conf.get("hidden_dim", 64)),
+                top_k=router_conf.get("top_k", 2),
+                stats=router_conf.get("stats", ["mean", "std", "min", "max"]),
+                local_segments=router_conf.get("local_segments", 0),
+                local_stats=router_conf.get("local_stats", ["mean", "std"]),
+                fft_bins=router_conf.get("fft_bins", 0),
+                equation_dim=equation_dim,
+                pde_param_dim=router_conf.get("pde_param_dim", 0),
+                num_datasets=num_datasets,
+                dataset_embed_dim=router_conf.get("dataset_embed_dim", 8),
+                use_dataset_embed=router_conf.get("use_dataset_embed", True),
+                code_dim=router_conf.get("code_dim", 0),
+                code_as_weight=router_conf.get("code_as_weight", True),
+                use_state_tokens=router_conf.get("use_state_tokens", True),
+                state_downsample=router_conf.get("state_downsample", 4),
+                use_stats_token=router_conf.get("use_stats_token", True),
+                n_layers=router_conf.get("n_layers", 2),
+                n_heads=router_conf.get("n_heads", 4),
+                ff_dim=router_conf.get("ff_dim"),
+                dropout=router_conf.get("dropout", 0.0),
+                use_primitive_queries=router_conf.get("use_primitive_queries", True),
+                always_on_index=always_on_index,
+            )
+        else:
+            router = Router(
+                num_primitives=total_primitives,
+                state_channels=output_channels,
+                hidden_dim=router_conf.get("hidden_dim", 64),
+                top_k=router_conf.get("top_k", 2),
+                stats=router_conf.get("stats", ["mean", "std", "min", "max"]),
+                local_segments=router_conf.get("local_segments", 0),
+                local_stats=router_conf.get("local_stats", ["mean", "std"]),
+                fft_bins=router_conf.get("fft_bins", 0),
+                equation_dim=equation_dim,
+                pde_param_dim=router_conf.get("pde_param_dim", 0),
+                num_datasets=num_datasets,
+                dataset_embed_dim=router_conf.get("dataset_embed_dim", 8),
+                use_dataset_embed=router_conf.get("use_dataset_embed", True),
+                code_dim=router_conf.get("code_dim", 0),
+                code_as_weight=router_conf.get("code_as_weight", True),
+                spatial=router_conf.get("spatial", False),
+                spatial_kernel=router_conf.get("spatial_kernel", 3),
+                spatial_downsample=router_conf.get("spatial_downsample", 1),
+                spatial_use_state=router_conf.get("spatial_use_state", True),
+                spatial_hidden_dim=router_conf.get("spatial_hidden_dim"),
+                always_on_index=always_on_index,
+            )
+
+        agg_conf = config.get("model", {}).get("aggregator", {})
+        agg_type = agg_conf.get("type", "linear")
+        agg_hidden = int(agg_conf.get("hidden_dim", 32))
+        router_code_dim = int(router_conf.get("code_dim", 0))
+        agg_code_dim = int(agg_conf.get("code_dim", router_code_dim))
+        aggregator = PrimitiveAggregator(
+            total_primitives,
+            agg_type=agg_type,
+            hidden_dim=agg_hidden,
+            output_channels=output_channels,
+            code_dim=agg_code_dim,
         )
 
-    agg_conf = config.get("model", {}).get("aggregator", {})
-    agg_type = agg_conf.get("type", "linear")
-    agg_hidden = int(agg_conf.get("hidden_dim", 32))
-    router_code_dim = int(router_conf.get("code_dim", 0))
-    agg_code_dim = int(agg_conf.get("code_dim", router_code_dim))
-    aggregator = PrimitiveAggregator(
-        total_primitives,
-        agg_type=agg_type,
-        hidden_dim=agg_hidden,
-        output_channels=output_channels,
-        code_dim=agg_code_dim,
-    )
+        model = PrimitiveCNO(
+            primitives,
+            router,
+            output_channels,
+            aggregator=aggregator,
+            base_operator=base_operator,
+        )
 
-    model = PrimitiveCNO(
-        primitives,
-        router,
-        output_channels,
-        aggregator=aggregator,
-        base_operator=base_operator,
-    )
     model = model.cuda() if torch.cuda.is_available() else model
+
+    include_grid = getattr(sample_ds, "include_grid", False)
+    device = next(model.parameters()).device
+
+    if model_type == "composite":
+        output_model = run_dir / Path(config["training"]["output_model"]).name
+        best_val_loss = float("inf")
+        train_history = []
+        val_history = []
+        val_by_dataset = {}
+        for name, loader, _, _ in val_loaders:
+            if loader is None:
+                continue
+            val_by_dataset[name] = []
+
+        train_conf = config["training"]
+        lr = float(train_conf.get("learning_rate", 1e-3))
+        finetune_lr = float(train_conf.get("finetune_lr", lr * 0.3))
+        base_epochs = int(train_conf.get("base_pretrain_epochs", 0))
+        residual_epochs = int(train_conf.get("residual_pretrain_epochs", 0))
+        joint_epochs = int(train_conf.get("joint_finetune_epochs", 0))
+        if base_epochs + residual_epochs + joint_epochs == 0:
+            base_epochs = int(train_conf.get("epochs", 50))
+
+        dataset_id_dropout = float(train_conf.get("dataset_id_dropout", 0.0))
+        load_balance_weight = float(train_conf.get("load_balance_weight", 0.0))
+        term_align_weight = float(train_conf.get("term_align_weight", 0.0))
+
+        stages = []
+        if base_epochs > 0 and (residual_epochs > 0 or joint_epochs > 0):
+            stages.append(("base", base_epochs, True, False, False, lr))
+        if residual_epochs > 0:
+            stages.append(("residual", residual_epochs, False, True, True, lr))
+        if joint_epochs > 0:
+            stages.append(("joint", joint_epochs, True, True, True, finetune_lr))
+        if not stages:
+            stages.append(("joint", base_epochs, True, True, True, lr))
+
+        global_epoch = 0
+        for stage_name, stage_epochs, train_base, train_terms, train_residual, stage_lr in stages:
+            logger.info("Stage %s: epochs=%d lr=%.6f", stage_name, stage_epochs, stage_lr)
+            _set_requires_grad(model.base_operator, train_base)
+            _set_requires_grad(model.term_library, train_terms)
+            _set_requires_grad(model.residual_experts, train_residual)
+            _set_requires_grad(model.router, train_residual)
+
+            opt = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=stage_lr)
+            for epoch in range(1, stage_epochs + 1):
+                global_epoch += 1
+                epoch_start = time.perf_counter()
+                model.train()
+                train_loss = 0.0
+                train_pbar = tqdm(train_loader, desc=f"{stage_name} {global_epoch}", leave=False, **TQDM_KWARGS)
+                for batch in train_pbar:
+                    u_t, u_tp1, pde_params, dataset_id, equation, _ = _unpack_batch(
+                        batch, device=device, return_meta=False
+                    )
+                    if dataset_id is not None and dataset_id_dropout > 0.0:
+                        if torch.rand(1).item() < dataset_id_dropout:
+                            dataset_id = None
+
+                    opt.zero_grad()
+                    weights = None
+                    align_loss = 0.0
+                    if term_align_weight > 0:
+                        pred, parts = model(
+                            u_t,
+                            pde_params=pde_params,
+                            dataset_id=dataset_id,
+                            equation=equation,
+                            return_parts=True,
+                            return_terms=True,
+                        )
+                        weights = parts.get("residual_weights")
+                        align_loss = _term_align_loss(
+                            parts.get("term_outputs", {}),
+                            parts.get("term_features", {}),
+                            output_channels,
+                        )
+                    else:
+                        pred, weights, _ = model(
+                            u_t,
+                            pde_params=pde_params,
+                            dataset_id=dataset_id,
+                            equation=equation,
+                            return_weights=True,
+                        )
+
+                    loss = _nrmse(pred, u_tp1)
+                    if term_align_weight > 0:
+                        loss = loss + term_align_weight * align_loss
+                    if load_balance_weight > 0 and weights is not None:
+                        loss = loss + load_balance_weight * _load_balance_loss(
+                            weights, getattr(model.router, "num_primitives", weights.size(-1))
+                        )
+
+                    loss.backward()
+                    opt.step()
+                    train_loss += loss.item()
+                    train_pbar.set_postfix(loss=loss.item())
+
+                train_loss /= max(len(train_loader), 1)
+
+                # validation
+                val_loss = 0.0
+                if val_loaders:
+                    model.eval()
+                    with torch.no_grad():
+                        total_batches = 0
+                        for name, loader, _, _ in val_loaders:
+                            ds_loss = 0.0
+                            val_pbar = tqdm(loader, desc=f"Val {name} {global_epoch}", leave=False, **TQDM_KWARGS)
+                            for batch in val_pbar:
+                                u_t, u_tp1, pde_params, dataset_id, equation = _unpack_batch(
+                                    batch, device=device
+                                )
+                                pred = model(
+                                    u_t,
+                                    pde_params=pde_params,
+                                    dataset_id=dataset_id,
+                                    equation=equation,
+                                )
+                                loss = _nrmse(pred, u_tp1)
+                                ds_loss += loss.item()
+                                val_pbar.set_postfix(loss=loss.item())
+                            ds_loss /= max(len(loader), 1)
+                            logger.info("Val NRMSE (%s): %.6f", name, ds_loss)
+                            if name in val_by_dataset:
+                                val_by_dataset[name].append(ds_loss)
+                            val_loss += ds_loss * len(loader)
+                            total_batches += len(loader)
+                        if total_batches > 0:
+                            val_loss /= total_batches
+                else:
+                    val_loss = train_loss
+
+                logger.info(
+                    "[Stage %s | Epoch %d] Train NRMSE: %.6f, Val NRMSE: %.6f, time: %.1fs",
+                    stage_name,
+                    global_epoch,
+                    train_loss,
+                    val_loss,
+                    time.perf_counter() - epoch_start,
+                )
+                train_history.append(train_loss)
+                val_history.append(val_loss)
+
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    torch.save(model, output_model)
+
+        _save_training_plots(run_dir, train_history, val_history, val_by_dataset)
+        metrics = {
+            "train_loss": train_history[-1] if train_history else None,
+            "val_loss": val_history[-1] if val_history else None,
+            "test_loss": None,
+        }
+        with open(run_dir / "primitive_metrics.json", "w") as f:
+            json.dump(metrics, f, indent=2)
+        logger.info("Composite training complete. Model saved to: %s", str(output_model))
+        return
 
     opt = optim.Adam(model.parameters(), lr=config["training"]["learning_rate"])
     criterion = _nrmse

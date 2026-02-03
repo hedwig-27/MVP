@@ -1,23 +1,27 @@
 model:
-  num_primitives: 6
-  primitive:
+  type: composite
+  cond:
+    use_dataset_embed: false
+  base_operator:
+    enabled: true
+    type: fno
+    modes: 16
+    width: 64
+    depth: 4
+    fc_dim: 128
+    kernel_size: 5
+  term_library:
+    enabled: true
+    hidden_dim: 32
+    use_scale_mlp: true
+  residual:
+    num_experts: 4
     type: fno
     modes: 8
     width: 32
     depth: 3
     fc_dim: 64
     kernel_size: 5
-  base_operator:
-    enabled: true
-    type: fno
-    modes: 8
-    width: 16
-    depth: 2
-    fc_dim: 64
-    kernel_size: 5
-  aggregator:
-    type: mlp
-    hidden_dim: 32
   router:
     type: transformer
     d_model: 64
@@ -30,15 +34,16 @@ model:
     use_stats_token: true
     use_primitive_queries: true
     hidden_dim: 64
-    top_k: 3
+    top_k: 4
     stats: [mean, std, min, max, grad_norm]
     local_segments: 4
     local_stats: [mean, std]
     fft_bins: 8
-    pde_param_dim: 3
+    pde_param_dim: 4
     dataset_embed_dim: 8
-    code_dim: 1
-    code_as_weight: true
+    use_dataset_embed: false
+    code_dim: 0
+    code_as_weight: false
     spatial: false
 
 data:
@@ -48,6 +53,8 @@ data:
   time_downsample: 5
   include_grid: true
   normalize: true
+  global_normalize: true
+  append_dt_to_params: true
   equation_terms: [advection, nonlinear_advection, diffusion, reaction, sorption, cns]
   equation_text_dim: 128
   n_train: 8000
@@ -64,29 +71,11 @@ data:
       equation_coeffs: {advection: 0.4}
       equation_text: '\partial_t u(t,x) + \beta \partial_x u(t,x) = 0, \beta=0.4'
       weight: 1.0
-    - name: adv_beta0.1
-      path: datasets/1D_Advection_Sols_beta0.1.hdf5
-      params: {beta: 0.1, nu: 0.0, rho: 0.0}
-      equation_coeffs: {advection: 0.1}
-      equation_text: '\partial_t u(t,x) + \beta \partial_x u(t,x) = 0, \beta=0.1'
-      weight: 1.0
     - name: burgers_nu0.001
       path: datasets/1D_Burgers_Sols_Nu0.001.hdf5
       params: {beta: 0.0, nu: 0.001, rho: 0.0}
       equation_coeffs: {nonlinear_advection: 1.0, diffusion: 0.00031831}
       equation_text: '\partial_t u(t,x) + \partial_x \frac{u(t,x)^2}{2} = \frac{\nu}{\pi} \partial_{xx} u(t,x), \nu=0.001'
-      weight: 1.0
-    - name: burgers_nu0.01
-      path: datasets/1D_Burgers_Sols_Nu0.01.hdf5
-      params: {beta: 0.0, nu: 0.01, rho: 0.0}
-      equation_coeffs: {nonlinear_advection: 1.0, diffusion: 0.0031831}
-      equation_text: '\partial_t u(t,x) + \partial_x \frac{u(t,x)^2}{2} = \frac{\nu}{\pi} \partial_{xx} u(t,x), \nu=0.01'
-      weight: 1.0
-    - name: burgers_nu0.1
-      path: datasets/1D_Burgers_Sols_Nu0.1.hdf5
-      params: {beta: 0.0, nu: 0.1, rho: 0.0}
-      equation_coeffs: {nonlinear_advection: 1.0, diffusion: 0.031831}
-      equation_text: '\partial_t u(t,x) + \partial_x \frac{u(t,x)^2}{2} = \frac{\nu}{\pi} \partial_{xx} u(t,x), \nu=0.1'
       weight: 1.0
     - name: diff_sorp
       path: datasets/1D_diff-sorp_NA_NA.h5
@@ -131,16 +120,13 @@ data:
       time_downsample: 5
 
 training:
-  epochs: 50
+  base_pretrain_epochs: 20
+  residual_pretrain_epochs: 20
+  joint_finetune_epochs: 10
   learning_rate: 0.001
-  entropy_weight: 0.001
-  diversity_weight: 0.001
+  finetune_lr: 0.0003
+  dataset_id_dropout: 0.5
+  term_align_weight: 0.1
   load_balance_weight: 0.01
-  sparse_primitives: true
   rollout_steps: 1
-  rollout_gamma: 1.0
-  topk_warmup_epochs: 5
-  scheduled_sampling:
-    start: 0.0
-    end: 0.0
   output_model: outputs/latest_primitive/primitive_model.pt

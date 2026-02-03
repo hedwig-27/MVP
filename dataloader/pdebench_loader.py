@@ -24,6 +24,11 @@ def _detect_h5(path, data_keys=None):
             x_full = d.shape[2]
             channels = d.shape[3] if d.ndim == 4 else 1
             xcoord = f["x-coordinate"][()] if "x-coordinate" in f else np.arange(x_full)
+            tcoord = None
+            if "t-coordinate" in f:
+                tcoord = f["t-coordinate"][()]
+            elif "t_coordinate" in f:
+                tcoord = f["t_coordinate"][()]
             return {
                 "mode": mode,
                 "data_keys": ["tensor"],
@@ -32,6 +37,7 @@ def _detect_h5(path, data_keys=None):
                 "x_full": x_full,
                 "channels": channels,
                 "xcoord": np.asarray(xcoord, dtype=np.float32),
+                "tcoord": np.asarray(tcoord, dtype=np.float32) if tcoord is not None else None,
             }
 
         data_keys = data_keys or [k for k in keys if not _is_coord_key(k)]
@@ -42,6 +48,11 @@ def _detect_h5(path, data_keys=None):
             t_full = d0.shape[1]
             x_full = d0.shape[2]
             xcoord = f["x-coordinate"][()] if "x-coordinate" in f else np.arange(x_full)
+            tcoord = None
+            if "t-coordinate" in f:
+                tcoord = f["t-coordinate"][()]
+            elif "t_coordinate" in f:
+                tcoord = f["t_coordinate"][()]
             return {
                 "mode": mode,
                 "data_keys": data_keys,
@@ -50,6 +61,7 @@ def _detect_h5(path, data_keys=None):
                 "x_full": x_full,
                 "channels": len(data_keys),
                 "xcoord": np.asarray(xcoord, dtype=np.float32),
+                "tcoord": np.asarray(tcoord, dtype=np.float32) if tcoord is not None else None,
             }
 
         group_names = sorted(keys)
@@ -67,6 +79,9 @@ def _detect_h5(path, data_keys=None):
             xcoord = np.asarray(g0["grid"]["x"][()], dtype=np.float32)
         else:
             xcoord = np.arange(x_full, dtype=np.float32)
+        tcoord = None
+        if "grid" in g0 and "t" in g0["grid"]:
+            tcoord = np.asarray(g0["grid"]["t"][()], dtype=np.float32)
         return {
             "mode": "group",
             "data_keys": None,
@@ -76,6 +91,7 @@ def _detect_h5(path, data_keys=None):
             "x_full": x_full,
             "channels": channels,
             "xcoord": xcoord,
+            "tcoord": tcoord,
         }
 
 
@@ -169,6 +185,7 @@ class PDEBenchDataset(Dataset):
         self.t_full = info["t_full"]
         self.x_full = info["x_full"]
         self.solution_channels = info["channels"]
+        self.tcoord = info.get("tcoord", None)
 
         # spatial sampling
         self.x_idx = np.linspace(0, self.x_full - 1, n_res, dtype=np.int64)
@@ -180,6 +197,19 @@ class PDEBenchDataset(Dataset):
             t_idx = t_idx[: self.timesteps]
         self.t_indices = t_idx
         self.timesteps = len(self.t_indices)
+
+        # dt (time step size)
+        dt = None
+        if self.tcoord is not None and len(self.tcoord) > 1:
+            try:
+                t_vals = np.asarray(self.tcoord, dtype=np.float32)[self.t_indices]
+                if len(t_vals) > 1:
+                    dt = float(np.mean(np.diff(t_vals)))
+            except Exception:
+                dt = None
+        if dt is None:
+            dt = float(self.time_downsample)
+        self.dt = float(dt)
 
         # split ids
         if split_ids is None:
@@ -204,6 +234,17 @@ class PDEBenchDataset(Dataset):
                 self.stats = stats
         else:
             self.stats = {"mean": 0.0, "std": 1.0}
+
+    def stats_count(self):
+        use_ids = self.sample_ids
+        if self.stats_samples is not None:
+            use_ids = use_ids[: int(self.stats_samples)]
+        return (
+            len(use_ids)
+            * len(self.t_indices)
+            * len(self.x_idx)
+            * int(self.solution_channels)
+        )
 
     def __len__(self):
         return self.length

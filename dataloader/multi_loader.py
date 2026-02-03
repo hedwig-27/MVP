@@ -116,12 +116,24 @@ class DatasetWithMeta(Dataset):
         param_names: Optional[List[str]] = None,
         equation: Optional[torch.Tensor] = None,
         equation_terms: Optional[List[str]] = None,
+        dt: Optional[float] = None,
+        append_dt: bool = False,
     ):
         self.dataset = dataset
         self.dataset_id = int(dataset_id)
         self.dataset_name = dataset_name
         self.params = params
         self.param_names = param_names or []
+        self.dt = float(dt) if dt is not None else None
+        if append_dt:
+            dt_val = self.dt if self.dt is not None else 1.0
+            dt_tensor = torch.tensor([dt_val], dtype=torch.float32)
+            if self.params is None:
+                self.params = dt_tensor
+                self.param_names = ["dt"]
+            else:
+                self.params = torch.cat([self.params, dt_tensor], dim=0)
+                self.param_names = list(self.param_names) + ["dt"]
         self.equation = equation
         self.equation_terms = equation_terms or []
 
@@ -158,6 +170,32 @@ def _normalize_weights(streams: Sequence[DatasetStream]) -> torch.Tensor:
     if torch.all(w == 0):
         w = torch.ones_like(w)
     return w / w.sum()
+
+
+def _combine_stats(datasets: Sequence[Dataset]) -> Optional[Dict[str, float]]:
+    total_count = 0.0
+    total_sum = 0.0
+    total_sumsq = 0.0
+    for ds in datasets:
+        if not hasattr(ds, "stats") or ds.stats is None:
+            continue
+        if not hasattr(ds, "stats_count"):
+            continue
+        count = float(ds.stats_count())
+        if count <= 0:
+            continue
+        mean = float(ds.stats.get("mean", 0.0))
+        std = float(ds.stats.get("std", 1.0))
+        var = std * std
+        total_count += count
+        total_sum += mean * count
+        total_sumsq += (var + mean * mean) * count
+    if total_count <= 0:
+        return None
+    mean = total_sum / total_count
+    var = total_sumsq / total_count - mean * mean
+    std = float(np.sqrt(max(var, 0.0)) + 1e-8)
+    return {"mean": float(mean), "std": std}
 
 
 class MixLoader:
@@ -203,9 +241,10 @@ def build_loaders(data_conf: Dict[str, Any], split: str = "train"):
         train_ds, val_ds, test_ds, _ = build_datasets(data_conf)
         name = _dataset_name(data_conf)
         params, param_names = _parse_params(data_conf.get("params"))
-        wrapped_train = DatasetWithMeta(train_ds, 0, name, params, param_names)
-        wrapped_val = DatasetWithMeta(val_ds, 0, name, params, param_names) if val_ds else None
-        wrapped_test = DatasetWithMeta(test_ds, 0, name, params, param_names) if test_ds else None
+        append_dt = bool(data_conf.get("append_dt_to_params", False))
+        wrapped_train = DatasetWithMeta(train_ds, 0, name, params, param_names, dt=getattr(train_ds, "dt", None), append_dt=append_dt)
+        wrapped_val = DatasetWithMeta(val_ds, 0, name, params, param_names, dt=getattr(val_ds, "dt", None), append_dt=append_dt) if val_ds else None
+        wrapped_test = DatasetWithMeta(test_ds, 0, name, params, param_names, dt=getattr(test_ds, "dt", None), append_dt=append_dt) if test_ds else None
 
         batch_size = data_conf.get("batch_size", 32)
         num_workers = data_conf.get("num_workers", 0)
@@ -261,6 +300,10 @@ def build_loaders(data_conf: Dict[str, Any], split: str = "train"):
     default_conf.pop("datasets", None)
     default_conf.pop("eval_datasets", None)
     default_conf.pop("eval_equation_datasets", None)
+    global_normalize = bool(default_conf.get("global_normalize", False))
+    append_dt = bool(default_conf.get("append_dt_to_params", False))
+    if global_normalize:
+        default_conf["normalize"] = True
     eval_datasets_conf = data_conf.get("eval_datasets")
     equation_terms = data_conf.get("equation_terms")
     equation_text_dim = int(data_conf.get("equation_text_dim", 0))
@@ -277,10 +320,15 @@ def build_loaders(data_conf: Dict[str, Any], split: str = "train"):
     val_loaders: List[Tuple[str, DataLoader, int, Optional[torch.Tensor]]] = []
     test_loaders: List[Tuple[str, DataLoader, int, Optional[torch.Tensor]]] = []
     specs: List[Dict[str, Any]] = []
+    train_datasets_for_stats: List[Dataset] = []
+    all_datasets: List[Dataset] = []
 
     for idx, ds_conf in enumerate(datasets_conf):
         merged = _merge_conf(default_conf, ds_conf)
         train_ds, val_ds, test_ds, _ = build_datasets(merged)
+        if global_normalize and merged.get("normalize", False):
+            train_datasets_for_stats.append(train_ds)
+        all_datasets.extend([d for d in (train_ds, val_ds, test_ds) if d is not None])
         name = _dataset_name(merged)
         params, param_names = _parse_params(merged.get("params"))
         eq_terms = equation_terms or merged.get("equation_terms")
@@ -293,9 +341,18 @@ def build_loaders(data_conf: Dict[str, Any], split: str = "train"):
         )
         weight = float(merged.get("weight", 1.0))
 
-        wrapped_train = DatasetWithMeta(train_ds, idx, name, params, param_names, equation, eq_terms)
-        wrapped_val = DatasetWithMeta(val_ds, idx, name, params, param_names, equation, eq_terms) if val_ds else None
-        wrapped_test = DatasetWithMeta(test_ds, idx, name, params, param_names, equation, eq_terms) if test_ds else None
+        wrapped_train = DatasetWithMeta(
+            train_ds, idx, name, params, param_names, equation, eq_terms,
+            dt=getattr(train_ds, "dt", None), append_dt=append_dt
+        )
+        wrapped_val = DatasetWithMeta(
+            val_ds, idx, name, params, param_names, equation, eq_terms,
+            dt=getattr(val_ds, "dt", None), append_dt=append_dt
+        ) if val_ds else None
+        wrapped_test = DatasetWithMeta(
+            test_ds, idx, name, params, param_names, equation, eq_terms,
+            dt=getattr(test_ds, "dt", None), append_dt=append_dt
+        ) if test_ds else None
 
         train_loader = DataLoader(
             wrapped_train,
@@ -341,6 +398,12 @@ def build_loaders(data_conf: Dict[str, Any], split: str = "train"):
             }
         )
 
+    if global_normalize:
+        stats = _combine_stats(train_datasets_for_stats)
+        if stats is not None:
+            for ds in all_datasets:
+                ds.stats = stats
+
     if steps_per_epoch is None:
         steps_per_epoch = sum(len(s.loader) for s in streams)
     train_loader = MixLoader(streams, steps_per_epoch=steps_per_epoch, seed=seed)
@@ -373,7 +436,11 @@ def build_eval_loaders(data_conf: Dict[str, Any], split: str = "test"):
             text=equation_text,
             text_dim=equation_text_dim,
         )
-        wrapped = DatasetWithMeta(ds, 0, name, params, equation=equation, equation_terms=eq_terms)
+        append_dt = bool(data_conf.get("append_dt_to_params", False))
+        wrapped = DatasetWithMeta(
+            ds, 0, name, params, equation=equation, equation_terms=eq_terms,
+            dt=getattr(ds, "dt", None), append_dt=append_dt
+        )
         batch_size = data_conf.get("batch_size", 32)
         num_workers = data_conf.get("num_workers", 0)
         pin_memory = torch.cuda.is_available()
@@ -393,6 +460,10 @@ def build_eval_loaders(data_conf: Dict[str, Any], split: str = "test"):
     default_conf.pop("datasets", None)
     default_conf.pop("eval_datasets", None)
     default_conf.pop("eval_equation_datasets", None)
+    global_normalize = bool(default_conf.get("global_normalize", False))
+    append_dt = bool(default_conf.get("append_dt_to_params", False))
+    if global_normalize:
+        default_conf["normalize"] = True
     equation_terms = data_conf.get("equation_terms")
     equation_text_dim = int(data_conf.get("equation_text_dim", 0))
     loaders: List[Tuple[str, DataLoader, int, Optional[torch.Tensor]]] = []
@@ -401,12 +472,18 @@ def build_eval_loaders(data_conf: Dict[str, Any], split: str = "test"):
     pin_memory = torch.cuda.is_available()
     persistent_workers = num_workers > 0
 
+    train_datasets_for_stats: List[Dataset] = []
+    all_datasets: List[Dataset] = []
+
     for idx, ds_conf in enumerate(datasets_conf):
         merged = _merge_conf(default_conf, ds_conf)
         train_ds, val_ds, test_ds, _ = build_datasets(merged)
         dataset = {"train": train_ds, "val": val_ds, "test": test_ds}[split]
         if dataset is None:
             continue
+        if global_normalize and merged.get("normalize", False):
+            train_datasets_for_stats.append(train_ds)
+        all_datasets.extend([d for d in (train_ds, val_ds, test_ds) if d is not None])
         name = _dataset_name(merged)
         params, param_names = _parse_params(merged.get("params"))
         eq_terms = equation_terms or merged.get("equation_terms")
@@ -417,7 +494,10 @@ def build_eval_loaders(data_conf: Dict[str, Any], split: str = "test"):
             text=equation_text,
             text_dim=equation_text_dim,
         )
-        wrapped = DatasetWithMeta(dataset, idx, name, params, param_names, equation, eq_terms)
+        wrapped = DatasetWithMeta(
+            dataset, idx, name, params, param_names, equation, eq_terms,
+            dt=getattr(dataset, "dt", None), append_dt=append_dt
+        )
         loader = DataLoader(
             wrapped,
             batch_size=batch_size,
@@ -427,5 +507,22 @@ def build_eval_loaders(data_conf: Dict[str, Any], split: str = "test"):
             persistent_workers=persistent_workers,
         )
         loaders.append((name, loader, idx, params))
+
+    if global_normalize:
+        stats = None
+        stats_sources = data_conf.get("global_stats_datasets")
+        if stats_sources:
+            # compute stats from explicitly provided dataset configs
+            tmp = []
+            for ds_conf in stats_sources:
+                merged = _merge_conf(default_conf, ds_conf)
+                train_ds, _, _, _ = build_datasets(merged)
+                tmp.append(train_ds)
+            stats = _combine_stats(tmp)
+        else:
+            stats = _combine_stats(train_datasets_for_stats)
+        if stats is not None:
+            for ds in all_datasets:
+                ds.stats = stats
 
     return loaders

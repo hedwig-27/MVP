@@ -40,14 +40,19 @@ def _resolve_run_dir(model_path):
 
 
 def _get_eval_conf(data_conf, split):
+    train_datasets = data_conf.get("datasets")
     if split == "ood_param" and data_conf.get("eval_datasets"):
         conf = dict(data_conf)
+        if train_datasets:
+            conf["global_stats_datasets"] = train_datasets
         conf["datasets"] = data_conf["eval_datasets"]
         conf.pop("eval_datasets", None)
         conf.pop("eval_equation_datasets", None)
         return conf
     if split == "ood_equation" and data_conf.get("eval_equation_datasets"):
         conf = dict(data_conf)
+        if train_datasets:
+            conf["global_stats_datasets"] = train_datasets
         conf["datasets"] = data_conf["eval_equation_datasets"]
         conf.pop("eval_datasets", None)
         conf.pop("eval_equation_datasets", None)

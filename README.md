@@ -131,7 +131,7 @@ data:
 
 | 用途 | 数据集 |
 | --- | --- |
-| 训练/ID | adv_beta0.1（weight=1.0）, adv_beta0.4（weight=1.0）, burgers_nu0.001（weight=1.0）, burgers_nu0.01（weight=1.0）, burgers_nu0.1（weight=1.0）, diff_sorp（weight=1.0，timesteps=21, time_downsample=5） |
+| 训练/ID | adv_beta0.4（weight=1.0）, burgers_nu0.001（weight=1.0）, diff_sorp（weight=1.0，timesteps=21, time_downsample=5） |
 | OOD-参数 | adv_beta1.0, burgers_nu1 |
 | OOD-方程 | reacdiff_rho1, reacdiff_rho5, reacdiff_rho10（均 timesteps=21, time_downsample=5） |
 
@@ -215,11 +215,6 @@ python eval/eval_suite.py --config configs/primitive.yaml --model outputs/latest
 
 
 ## 版本记录
-
-### 20260202
-
-- 训练集扩展为 adv_beta0.1、adv_beta0.4、burgers_nu0.001、burgers_nu0.01、burgers_nu0.1、diff_sorp（见 `configs/primitive.yaml`）。
-- OOD 评估数据集保持不变。
 
 ### 20260127
 

@@ -1005,7 +1005,6 @@ class CompositePDEModel(nn.Module):
         use_dataset_embed=False,
         dataset_embed_dim=8,
         num_datasets=1,
-        delta_clip=None,
     ):
         super().__init__()
         self.base_operator = base_operator
@@ -1015,7 +1014,6 @@ class CompositePDEModel(nn.Module):
         self.output_channels = int(output_channels)
         self.term_count = int(term_count)
         self.cond_dim = int(cond_dim)
-        self.delta_clip = float(delta_clip) if delta_clip is not None else None
         self.use_dataset_embed = bool(use_dataset_embed)
         self.dataset_embed = None
         if self.use_dataset_embed and num_datasets > 1:
@@ -1098,8 +1096,6 @@ class CompositePDEModel(nn.Module):
             delta_res = weighted.sum(dim=-1)
 
         delta = delta_base + delta_terms + delta_res
-        if self.delta_clip is not None and self.delta_clip > 0:
-            delta = delta.clamp(-self.delta_clip, self.delta_clip)
         u_next = u_state + delta
 
         if return_parts:

@@ -1,6 +1,5 @@
 model:
   type: composite
-  delta_clip: 1.0
   cond:
     use_dataset_embed: false
   base_operator:
@@ -35,12 +34,12 @@ model:
     use_stats_token: true
     use_primitive_queries: true
     hidden_dim: 64
-    top_k: 3
+    top_k: 4
     stats: [mean, std, min, max, grad_norm]
     local_segments: 4
     local_stats: [mean, std]
     fft_bins: 8
-    pde_param_dim: 6
+    pde_param_dim: 4
     dataset_embed_dim: 8
     use_dataset_embed: false
     code_dim: 0
@@ -54,9 +53,8 @@ data:
   time_downsample: 5
   include_grid: true
   normalize: true
-  global_normalize: false
+  global_normalize: true
   append_dt_to_params: true
-  append_stats_to_params: true
   equation_terms: [advection, nonlinear_advection, diffusion, reaction, sorption, cns]
   equation_text_dim: 128
   n_train: 8000
@@ -125,15 +123,10 @@ training:
   base_pretrain_epochs: 20
   residual_pretrain_epochs: 20
   joint_finetune_epochs: 10
-  learning_rate: 0.0005
-  finetune_lr: 0.00015
-  grad_clip: 1.0
+  learning_rate: 0.001
+  finetune_lr: 0.0003
   dataset_id_dropout: 0.5
-  term_align_weight: 0.02
+  term_align_weight: 0.1
   load_balance_weight: 0.01
-  rollout_steps: 2
-  rollout_gamma: 0.9
-  scheduled_sampling:
-    start: 0.0
-    end: 0.2
+  rollout_steps: 1
   output_model: outputs/latest_primitive/primitive_model.pt

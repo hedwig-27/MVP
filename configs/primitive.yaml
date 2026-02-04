@@ -125,15 +125,15 @@ training:
   base_pretrain_epochs: 20
   residual_pretrain_epochs: 20
   joint_finetune_epochs: 10
-  learning_rate: 0.001
-  finetune_lr: 0.0003
+  learning_rate: 0.0005
+  finetune_lr: 0.00015
   grad_clip: 1.0
   dataset_id_dropout: 0.5
-  term_align_weight: 0.1
+  term_align_weight: 0.02
   load_balance_weight: 0.01
-  rollout_steps: 4
+  rollout_steps: 2
   rollout_gamma: 0.9
   scheduled_sampling:
     start: 0.0
-    end: 0.3
+    end: 0.2
   output_model: outputs/latest_primitive/primitive_model.pt

@@ -1,4 +1,5 @@
 import json
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -101,6 +102,35 @@ def _save_training_plots(run_dir, train_history, val_history, val_by_dataset):
     plt.tight_layout()
     plt.savefig(plot_dir / "train_val_nrmse.png")
     plt.close()
+
+
+def _ensure_model_saved(model, output_model):
+    if output_model is None:
+        return
+    output_model = Path(output_model)
+    if output_model.exists():
+        return
+    output_model.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(model, output_model)
+
+
+def _sync_latest_model(output_model, link_name="latest_primitive", output_root="outputs"):
+    if output_model is None:
+        return False
+    output_model = Path(output_model)
+    if not output_model.exists():
+        return False
+    link_path = Path(output_root) / link_name
+    try:
+        if link_path.exists() and link_path.is_symlink():
+            dest_dir = link_path
+        else:
+            link_path.mkdir(parents=True, exist_ok=True)
+            dest_dir = link_path
+        shutil.copy2(output_model, dest_dir / output_model.name)
+        return True
+    except OSError:
+        return False
 
     if val_by_dataset:
         plt.figure(figsize=(7, 4))
@@ -535,6 +565,7 @@ def main(config_path):
                 epoch_start = time.perf_counter()
                 model.train()
                 train_loss = 0.0
+                nan_batches = 0
                 stage_rollout_steps = rollout_steps if (use_terms or use_residual) else 1
                 if stage_rollout_steps > 1:
                     if total_epochs > 1:
@@ -602,6 +633,10 @@ def main(config_path):
                                 use_residual=use_residual,
                             )
 
+                        finite_mask = torch.isfinite(pred).all(dim=(1, 2))
+                        if not finite_mask.all():
+                            pred = torch.nan_to_num(pred, nan=0.0, posinf=1e4, neginf=-1e4)
+
                         if step == 1:
                             gt = u_tp1
                             valid = torch.ones(gt.size(0), dtype=torch.bool, device=device)
@@ -620,6 +655,7 @@ def main(config_path):
                                         valid[i] = False
                                         continue
                                     gt[i] = _read_future_state(ds, int(sample_ids[i].item()), next_idx, device)
+                        valid = valid & finite_mask
 
                         if valid.any():
                             step_loss = _nrmse(pred[valid], gt[valid])
@@ -651,7 +687,19 @@ def main(config_path):
                     else:
                         loss = total_loss
                     if term_align_weight > 0 and use_terms:
-                        loss = loss + term_align_weight * align_loss
+                        if torch.isfinite(align_loss):
+                            loss = loss + term_align_weight * align_loss
+
+                    if not torch.isfinite(loss):
+                        nan_batches += 1
+                        if nan_batches <= 3 or nan_batches % 20 == 0:
+                            logger.warning(
+                                "NaN loss detected at stage %s epoch %d (batch %d); skipping update.",
+                                stage_name,
+                                global_epoch,
+                                nan_batches,
+                            )
+                        continue
 
                     loss.backward()
                     if grad_clip and grad_clip > 0:
@@ -670,6 +718,7 @@ def main(config_path):
                         total_batches = 0
                         for name, loader, _, _ in val_loaders:
                             ds_loss = 0.0
+                            bad_dataset = False
                             val_pbar = tqdm(loader, desc=f"Val {name} {global_epoch}", leave=False, **TQDM_KWARGS)
                             for batch in val_pbar:
                                 u_t, u_tp1, pde_params, dataset_id, equation = _unpack_batch(
@@ -684,13 +733,23 @@ def main(config_path):
                                     use_terms=use_terms,
                                     use_residual=use_residual,
                                 )
+                                if not torch.isfinite(pred).all():
+                                    logger.warning("Non-finite prediction in val (%s).", name)
+                                    ds_loss = float("inf")
+                                    bad_dataset = True
+                                    break
                                 loss = _nrmse(pred, u_tp1)
                                 ds_loss += loss.item()
                                 val_pbar.set_postfix(loss=loss.item())
-                            ds_loss /= max(len(loader), 1)
+                            if not bad_dataset:
+                                ds_loss /= max(len(loader), 1)
                             logger.info("Val NRMSE (%s): %.6f", name, ds_loss)
                             if name in val_by_dataset:
                                 val_by_dataset[name].append(ds_loss)
+                            if bad_dataset:
+                                val_loss = float("inf")
+                                total_batches = 1
+                                break
                             val_loss += ds_loss * len(loader)
                             total_batches += len(loader)
                         if total_batches > 0:
@@ -723,6 +782,9 @@ def main(config_path):
         }
         with open(run_dir / "primitive_metrics.json", "w") as f:
             json.dump(metrics, f, indent=2)
+        _ensure_model_saved(model, output_model)
+        if not _sync_latest_model(output_model):
+            logger.info("Could not sync outputs/latest_primitive model copy.")
         logger.info("Composite training complete. Model saved to: %s", str(output_model))
         return
 
@@ -935,6 +997,9 @@ def main(config_path):
     }
     with open(run_dir / "primitive_metrics.json", "w") as f:
         json.dump(metrics, f, indent=2)
+    _ensure_model_saved(model, output_model)
+    if not _sync_latest_model(output_model):
+        logger.info("Could not sync outputs/latest_primitive model copy.")
     logger.info("Primitive training complete. Model saved to: %s", str(output_model))
 
 

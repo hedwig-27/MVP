@@ -216,13 +216,14 @@ python eval/eval_suite.py --config configs/primitive.yaml --model outputs/latest
 
 ## 版本记录
 
-### 20260203-2
+### 20260204
 
-- 稳定性改造：训练加入多步 rollout（rollout_steps=4 + scheduled sampling），强调多步一致性；base 阶段仍使用单步训练以避免早期发散。
+- 稳定性改造：训练加入多步 rollout（rollout_steps=2 + scheduled sampling），强调多步一致性；base 阶段仍使用单步训练以避免早期发散。
 - 输出增量加入裁剪（delta_clip=1.0），避免 rollout 时爆炸。
 - 路由稀疏度调整：top_k=3。
 - 归一化改为按数据集统计；并追加 mean/std 到 params（pde_param_dim=6）。
 - 训练加入梯度裁剪（grad_clip=1.0）。
+- 降低学习率（lr=5e-4, finetune_lr=1.5e-4）与 term_align_weight（0.02）以降低 NaN 风险。
 
 ### 20260203
 

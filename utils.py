@@ -27,7 +27,7 @@ class _TqdmTtyFile:
 
 def get_progress(iterable, *, desc="", total=None, leave=False):
     disable = bool(os.environ.get("TQDM_DISABLE"))
-    force_tty = bool(os.environ.get("TQDM_FORCE_TTY"))
+    force_tty = os.environ.get("TQDM_FORCE_TTY", "1") != "0"
     file_obj = _TqdmTtyFile(sys.stderr) if force_tty else sys.stderr
     return tqdm(
         iterable,

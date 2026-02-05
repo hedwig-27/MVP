@@ -42,7 +42,7 @@ def run_and_log(cmd, cwd, log_path):
             cmd,
             cwd=cwd,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=None,
             text=True,
             bufsize=1,
             env=env,

@@ -1,0 +1,221 @@
+2026-02-05 11:04:16,784 | INFO | Log file: outputs/primitive_20260205_110416/run.log
+2026-02-05 11:04:20,993 | INFO | Dataset[0] adv_beta0.4 params=[0.4000000059604645, 0.0, 0.0] train_pairs=320000 val_pairs=40000 test_pairs=40000 weight=1.0
+2026-02-05 11:04:20,994 | INFO | Dataset[1] burgers_nu0.001 params=[0.0, 0.0010000000474974513, 0.0] train_pairs=320000 val_pairs=40000 test_pairs=40000 weight=1.0
+2026-02-05 11:04:20,994 | INFO | Dataset[2] diff_sorp params=[0.0, 0.0, 0.0] train_pairs=160000 val_pairs=20000 test_pairs=20000 weight=1.0
+2026-02-05 11:04:23,509 | INFO | Stage base: epochs=20 lr=0.001000
+2026-02-05 11:07:56,148 | INFO | Val NRMSE (adv_beta0.4): 0.126372
+2026-02-05 11:08:22,261 | INFO | Val NRMSE (burgers_nu0.001): 0.125726
+2026-02-05 11:08:44,452 | INFO | Val NRMSE (diff_sorp): 0.031003
+2026-02-05 11:08:44,453 | INFO | [Stage base | Epoch 1] Train NRMSE: 0.141506, Val NRMSE: 0.107040, Rel Val: 10.427268, time: 253.7s
+2026-02-05 11:11:36,242 | INFO | Val NRMSE (adv_beta0.4): 0.044188
+2026-02-05 11:11:50,095 | INFO | Val NRMSE (burgers_nu0.001): 0.078576
+2026-02-05 11:11:57,182 | INFO | Val NRMSE (diff_sorp): 0.074675
+2026-02-05 11:11:57,182 | INFO | [Stage base | Epoch 2] Train NRMSE: 0.064447, Val NRMSE: 0.064040, Rel Val: 14.573564, time: 192.7s
+2026-02-05 11:14:31,826 | INFO | Val NRMSE (adv_beta0.4): 0.053921
+2026-02-05 11:14:45,449 | INFO | Val NRMSE (burgers_nu0.001): 0.114914
+2026-02-05 11:14:52,595 | INFO | Val NRMSE (diff_sorp): 0.024854
+2026-02-05 11:14:52,596 | INFO | [Stage base | Epoch 3] Train NRMSE: 0.056621, Val NRMSE: 0.072505, Rel Val: 6.897251, time: 175.4s
+2026-02-05 11:17:05,995 | INFO | Val NRMSE (adv_beta0.4): 0.069264
+2026-02-05 11:17:19,755 | INFO | Val NRMSE (burgers_nu0.001): 0.075145
+2026-02-05 11:17:27,159 | INFO | Val NRMSE (diff_sorp): 0.027949
+2026-02-05 11:17:27,160 | INFO | [Stage base | Epoch 4] Train NRMSE: 0.058078, Val NRMSE: 0.063354, Rel Val: 7.593155, time: 154.6s
+2026-02-05 11:19:27,953 | INFO | Val NRMSE (adv_beta0.4): 0.038426
+2026-02-05 11:19:41,923 | INFO | Val NRMSE (burgers_nu0.001): 0.058648
+2026-02-05 11:19:48,831 | INFO | Val NRMSE (diff_sorp): 0.016236
+2026-02-05 11:19:48,832 | INFO | [Stage base | Epoch 5] Train NRMSE: 0.046610, Val NRMSE: 0.042077, Rel Val: 4.475597, time: 141.7s
+2026-02-05 11:21:39,097 | INFO | Val NRMSE (adv_beta0.4): 0.038640
+2026-02-05 11:21:52,488 | INFO | Val NRMSE (burgers_nu0.001): 0.057786
+2026-02-05 11:21:59,476 | INFO | Val NRMSE (diff_sorp): 0.029490
+2026-02-05 11:21:59,477 | INFO | [Stage base | Epoch 6] Train NRMSE: 0.049933, Val NRMSE: 0.044468, Rel Val: 6.684504, time: 130.6s
+2026-02-05 11:23:44,323 | INFO | Val NRMSE (adv_beta0.4): 0.090622
+2026-02-05 11:23:57,608 | INFO | Val NRMSE (burgers_nu0.001): 0.113000
+2026-02-05 11:24:04,560 | INFO | Val NRMSE (diff_sorp): 0.016120
+2026-02-05 11:24:04,560 | INFO | [Stage base | Epoch 7] Train NRMSE: 0.042912, Val NRMSE: 0.084673, Rel Val: 6.649149, time: 125.1s
+2026-02-05 11:25:36,603 | INFO | Val NRMSE (adv_beta0.4): 0.060160
+2026-02-05 11:25:49,754 | INFO | Val NRMSE (burgers_nu0.001): 0.071151
+2026-02-05 11:25:56,745 | INFO | Val NRMSE (diff_sorp): 0.015682
+2026-02-05 11:25:56,746 | INFO | [Stage base | Epoch 8] Train NRMSE: 0.040751, Val NRMSE: 0.055661, Rel Val: 5.211987, time: 112.2s
+2026-02-05 11:27:29,821 | INFO | Val NRMSE (adv_beta0.4): 0.026225
+2026-02-05 11:27:43,134 | INFO | Val NRMSE (burgers_nu0.001): 0.058508
+2026-02-05 11:27:49,795 | INFO | Val NRMSE (diff_sorp): 0.011870
+2026-02-05 11:27:49,796 | INFO | [Stage base | Epoch 9] Train NRMSE: 0.039967, Val NRMSE: 0.036267, Rel Val: 3.340090, time: 113.1s
+2026-02-05 11:29:15,351 | INFO | Val NRMSE (adv_beta0.4): 0.023827
+2026-02-05 11:29:29,205 | INFO | Val NRMSE (burgers_nu0.001): 0.055588
+2026-02-05 11:29:36,068 | INFO | Val NRMSE (diff_sorp): 0.019128
+2026-02-05 11:29:36,069 | INFO | [Stage base | Epoch 10] Train NRMSE: 0.036794, Val NRMSE: 0.035591, Rel Val: 4.445396, time: 106.3s
+2026-02-05 11:31:01,796 | INFO | Val NRMSE (adv_beta0.4): 0.032509
+2026-02-05 11:31:15,809 | INFO | Val NRMSE (burgers_nu0.001): 0.053781
+2026-02-05 11:31:22,862 | INFO | Val NRMSE (diff_sorp): 0.030255
+2026-02-05 11:31:22,864 | INFO | [Stage base | Epoch 11] Train NRMSE: 0.039655, Val NRMSE: 0.040567, Rel Val: 6.574235, time: 106.8s
+2026-02-05 11:32:49,125 | INFO | Val NRMSE (adv_beta0.4): 0.024412
+2026-02-05 11:33:02,881 | INFO | Val NRMSE (burgers_nu0.001): 0.052612
+2026-02-05 11:33:09,633 | INFO | Val NRMSE (diff_sorp): 0.019929
+2026-02-05 11:33:09,633 | INFO | [Stage base | Epoch 12] Train NRMSE: 0.034446, Val NRMSE: 0.034795, Rel Val: 4.573611, time: 106.8s
+2026-02-05 11:34:33,355 | INFO | Val NRMSE (adv_beta0.4): 0.023981
+2026-02-05 11:34:47,104 | INFO | Val NRMSE (burgers_nu0.001): 0.060599
+2026-02-05 11:34:53,751 | INFO | Val NRMSE (diff_sorp): 0.017996
+2026-02-05 11:34:53,751 | INFO | [Stage base | Epoch 13] Train NRMSE: 0.035766, Val NRMSE: 0.037431, Rel Val: 4.303746, time: 104.1s
+2026-02-05 11:36:15,027 | INFO | Val NRMSE (adv_beta0.4): 0.035691
+2026-02-05 11:36:28,697 | INFO | Val NRMSE (burgers_nu0.001): 0.052133
+2026-02-05 11:36:35,671 | INFO | Val NRMSE (diff_sorp): 0.013891
+2026-02-05 11:36:35,672 | INFO | [Stage base | Epoch 14] Train NRMSE: 0.035020, Val NRMSE: 0.037908, Rel Val: 3.939262, time: 101.9s
+2026-02-05 11:37:59,024 | INFO | Val NRMSE (adv_beta0.4): 0.023365
+2026-02-05 11:38:12,754 | INFO | Val NRMSE (burgers_nu0.001): 0.050788
+2026-02-05 11:38:19,860 | INFO | Val NRMSE (diff_sorp): 0.021419
+2026-02-05 11:38:19,861 | INFO | [Stage base | Epoch 15] Train NRMSE: 0.035239, Val NRMSE: 0.033945, Rel Val: 4.771952, time: 104.2s
+2026-02-05 11:39:37,520 | INFO | Val NRMSE (adv_beta0.4): 0.066649
+2026-02-05 11:39:51,370 | INFO | Val NRMSE (burgers_nu0.001): 0.078323
+2026-02-05 11:39:58,318 | INFO | Val NRMSE (diff_sorp): 0.019140
+2026-02-05 11:39:58,318 | INFO | [Stage base | Epoch 16] Train NRMSE: 0.033188, Val NRMSE: 0.061817, Rel Val: 6.064269, time: 98.5s
+2026-02-05 11:41:15,192 | INFO | Val NRMSE (adv_beta0.4): 0.021801
+2026-02-05 11:41:29,172 | INFO | Val NRMSE (burgers_nu0.001): 0.047627
+2026-02-05 11:41:36,138 | INFO | Val NRMSE (diff_sorp): 0.007452
+2026-02-05 11:41:36,139 | INFO | [Stage base | Epoch 17] Train NRMSE: 0.031887, Val NRMSE: 0.029262, Rel Val: 2.365658, time: 97.8s
+2026-02-05 11:42:51,156 | INFO | Val NRMSE (adv_beta0.4): 0.034797
+2026-02-05 11:43:05,061 | INFO | Val NRMSE (burgers_nu0.001): 0.064667
+2026-02-05 11:43:11,992 | INFO | Val NRMSE (diff_sorp): 0.009586
+2026-02-05 11:43:11,992 | INFO | [Stage base | Epoch 18] Train NRMSE: 0.031907, Val NRMSE: 0.041703, Rel Val: 3.296453, time: 95.9s
+2026-02-05 11:44:28,011 | INFO | Val NRMSE (adv_beta0.4): 0.033797
+2026-02-05 11:44:42,040 | INFO | Val NRMSE (burgers_nu0.001): 0.059298
+2026-02-05 11:44:49,055 | INFO | Val NRMSE (diff_sorp): 0.028276
+2026-02-05 11:44:49,057 | INFO | [Stage base | Epoch 19] Train NRMSE: 0.033147, Val NRMSE: 0.042893, Rel Val: 6.333410, time: 97.1s
+2026-02-05 11:46:02,440 | INFO | Val NRMSE (adv_beta0.4): 0.019287
+2026-02-05 11:46:16,489 | INFO | Val NRMSE (burgers_nu0.001): 0.046006
+2026-02-05 11:46:23,657 | INFO | Val NRMSE (diff_sorp): 0.008766
+2026-02-05 11:46:23,658 | INFO | [Stage base | Epoch 20] Train NRMSE: 0.030100, Val NRMSE: 0.027871, Rel Val: 2.487371, time: 94.6s
+2026-02-05 11:46:23,658 | INFO | Stage residual: epochs=20 lr=0.001000
+2026-02-05 11:48:41,671 | INFO | Val NRMSE (adv_beta0.4): 0.064364
+2026-02-05 11:49:17,133 | INFO | Val NRMSE (burgers_nu0.001): 0.071130
+2026-02-05 11:49:34,704 | INFO | Val NRMSE (diff_sorp): 0.040455
+2026-02-05 11:49:34,704 | INFO | [Stage residual | Epoch 21] Train NRMSE: 0.399504, Val NRMSE: 0.062289, Rel Val: 9.480741, time: 191.0s
+2026-02-05 11:51:48,709 | INFO | Val NRMSE (adv_beta0.4): 0.027370
+2026-02-05 11:52:24,291 | INFO | Val NRMSE (burgers_nu0.001): 0.047552
+2026-02-05 11:52:41,611 | INFO | Val NRMSE (diff_sorp): 0.040014
+2026-02-05 11:52:41,612 | INFO | [Stage residual | Epoch 22] Train NRMSE: 0.145640, Val NRMSE: 0.037972, Rel Val: 7.977557, time: 186.3s
+2026-02-05 11:54:56,494 | INFO | Val NRMSE (adv_beta0.4): 0.031944
+2026-02-05 11:55:32,328 | INFO | Val NRMSE (burgers_nu0.001): 0.051499
+2026-02-05 11:55:49,912 | INFO | Val NRMSE (diff_sorp): 0.068295
+2026-02-05 11:55:49,912 | INFO | [Stage residual | Epoch 23] Train NRMSE: 0.100255, Val NRMSE: 0.047036, Rel Val: 12.876399, time: 188.3s
+2026-02-05 11:58:05,393 | INFO | Val NRMSE (adv_beta0.4): 0.089026
+2026-02-05 11:58:41,177 | INFO | Val NRMSE (burgers_nu0.001): 0.073127
+2026-02-05 11:58:58,893 | INFO | Val NRMSE (diff_sorp): 0.089830
+2026-02-05 11:58:58,894 | INFO | [Stage residual | Epoch 24] Train NRMSE: 0.200884, Val NRMSE: 0.082827, Rel Val: 18.548602, time: 189.0s
+2026-02-05 12:01:13,533 | INFO | Val NRMSE (adv_beta0.4): 0.020912
+2026-02-05 12:01:49,231 | INFO | Val NRMSE (burgers_nu0.001): 0.041190
+2026-02-05 12:02:06,810 | INFO | Val NRMSE (diff_sorp): 0.012017
+2026-02-05 12:02:06,811 | INFO | [Stage residual | Epoch 25] Train NRMSE: 0.069158, Val NRMSE: 0.027244, Rel Val: 3.043192, time: 187.9s
+2026-02-05 12:04:20,573 | INFO | Val NRMSE (adv_beta0.4): 0.027797
+2026-02-05 12:04:56,975 | INFO | Val NRMSE (burgers_nu0.001): 0.044061
+2026-02-05 12:05:14,597 | INFO | Val NRMSE (diff_sorp): 0.023715
+2026-02-05 12:05:14,598 | INFO | [Stage residual | Epoch 26] Train NRMSE: 0.063118, Val NRMSE: 0.033486, Rel Val: 5.246218, time: 187.7s
+2026-02-05 12:07:27,463 | INFO | Val NRMSE (adv_beta0.4): 0.021218
+2026-02-05 12:08:02,829 | INFO | Val NRMSE (burgers_nu0.001): 0.045751
+2026-02-05 12:08:20,930 | INFO | Val NRMSE (diff_sorp): 0.016115
+2026-02-05 12:08:20,930 | INFO | [Stage residual | Epoch 27] Train NRMSE: 0.198251, Val NRMSE: 0.030011, Rel Val: 3.774440, time: 186.3s
+2026-02-05 12:10:33,902 | INFO | Val NRMSE (adv_beta0.4): 0.019816
+2026-02-05 12:11:08,682 | INFO | Val NRMSE (burgers_nu0.001): 0.040863
+2026-02-05 12:11:26,548 | INFO | Val NRMSE (diff_sorp): 0.011237
+2026-02-05 12:11:26,549 | INFO | [Stage residual | Epoch 28] Train NRMSE: 0.061733, Val NRMSE: 0.026519, Rel Val: 2.873805, time: 185.6s
+2026-02-05 12:13:39,123 | INFO | Val NRMSE (adv_beta0.4): 0.026568
+2026-02-05 12:14:14,745 | INFO | Val NRMSE (burgers_nu0.001): 0.055661
+2026-02-05 12:14:32,760 | INFO | Val NRMSE (diff_sorp): 0.044290
+2026-02-05 12:14:32,760 | INFO | [Stage residual | Epoch 29] Train NRMSE: 0.066919, Val NRMSE: 0.041749, Rel Val: 8.731023, time: 186.2s
+2026-02-05 12:16:45,043 | INFO | Val NRMSE (adv_beta0.4): 0.036176
+2026-02-05 12:17:20,630 | INFO | Val NRMSE (burgers_nu0.001): 0.050112
+2026-02-05 12:17:38,210 | INFO | Val NRMSE (diff_sorp): 0.035909
+2026-02-05 12:17:38,210 | INFO | [Stage residual | Epoch 30] Train NRMSE: 0.065031, Val NRMSE: 0.041697, Rel Val: 7.608350, time: 185.4s
+2026-02-05 12:19:50,971 | INFO | Val NRMSE (adv_beta0.4): 0.017335
+2026-02-05 12:20:25,925 | INFO | Val NRMSE (burgers_nu0.001): 0.040290
+2026-02-05 12:20:43,449 | INFO | Val NRMSE (diff_sorp): 0.011582
+2026-02-05 12:20:43,450 | INFO | [Stage residual | Epoch 31] Train NRMSE: 0.061681, Val NRMSE: 0.025366, Rel Val: 2.843949, time: 185.2s
+2026-02-05 12:22:54,014 | INFO | Val NRMSE (adv_beta0.4): 0.017416
+2026-02-05 12:23:29,417 | INFO | Val NRMSE (burgers_nu0.001): 0.039701
+2026-02-05 12:23:46,668 | INFO | Val NRMSE (diff_sorp): 0.012855
+2026-02-05 12:23:46,669 | INFO | [Stage residual | Epoch 32] Train NRMSE: 0.061871, Val NRMSE: 0.025418, Rel Val: 3.053877, time: 183.2s
+2026-02-05 12:25:57,990 | INFO | Val NRMSE (adv_beta0.4): 0.022853
+2026-02-05 12:26:33,783 | INFO | Val NRMSE (burgers_nu0.001): 0.041511
+2026-02-05 12:26:51,293 | INFO | Val NRMSE (diff_sorp): 0.020693
+2026-02-05 12:26:51,293 | INFO | [Stage residual | Epoch 33] Train NRMSE: 0.084122, Val NRMSE: 0.029884, Rel Val: 4.556538, time: 184.6s
+2026-02-05 12:29:03,662 | INFO | Val NRMSE (adv_beta0.4): 0.015309
+2026-02-05 12:29:38,802 | INFO | Val NRMSE (burgers_nu0.001): 0.040455
+2026-02-05 12:29:56,393 | INFO | Val NRMSE (diff_sorp): 0.008287
+2026-02-05 12:29:56,393 | INFO | [Stage residual | Epoch 34] Train NRMSE: 0.059951, Val NRMSE: 0.023963, Rel Val: 2.228504, time: 185.1s
+2026-02-05 12:32:09,104 | INFO | Val NRMSE (adv_beta0.4): 0.030150
+2026-02-05 12:32:44,866 | INFO | Val NRMSE (burgers_nu0.001): 0.047486
+2026-02-05 12:33:03,166 | INFO | Val NRMSE (diff_sorp): 0.015588
+2026-02-05 12:33:03,167 | INFO | [Stage residual | Epoch 35] Train NRMSE: 0.062072, Val NRMSE: 0.034172, Rel Val: 3.998752, time: 186.7s
+2026-02-05 12:35:15,036 | INFO | Val NRMSE (adv_beta0.4): 0.065972
+2026-02-05 12:35:50,882 | INFO | Val NRMSE (burgers_nu0.001): 0.081917
+2026-02-05 12:36:08,338 | INFO | Val NRMSE (diff_sorp): 0.047935
+2026-02-05 12:36:08,339 | INFO | [Stage residual | Epoch 36] Train NRMSE: 0.058879, Val NRMSE: 0.068742, Rel Val: 10.870815, time: 185.2s
+2026-02-05 12:38:20,908 | INFO | Val NRMSE (adv_beta0.4): 0.017528
+2026-02-05 12:38:56,782 | INFO | Val NRMSE (burgers_nu0.001): 0.042045
+2026-02-05 12:39:14,344 | INFO | Val NRMSE (diff_sorp): 0.015048
+2026-02-05 12:39:14,344 | INFO | [Stage residual | Epoch 37] Train NRMSE: 0.066166, Val NRMSE: 0.026838, Rel Val: 3.442580, time: 186.0s
+2026-02-05 12:41:28,447 | INFO | Val NRMSE (adv_beta0.4): 0.021158
+2026-02-05 12:42:03,351 | INFO | Val NRMSE (burgers_nu0.001): 0.044290
+2026-02-05 12:42:20,708 | INFO | Val NRMSE (diff_sorp): 0.019475
+2026-02-05 12:42:20,708 | INFO | [Stage residual | Epoch 38] Train NRMSE: 0.057899, Val NRMSE: 0.030074, Rel Val: 4.320182, time: 186.4s
+2026-02-05 12:44:58,357 | INFO | Val NRMSE (adv_beta0.4): 0.014920
+2026-02-05 12:46:07,507 | INFO | Val NRMSE (burgers_nu0.001): 0.039617
+2026-02-05 12:46:58,824 | INFO | Val NRMSE (diff_sorp): 0.017300
+2026-02-05 12:46:58,824 | INFO | [Stage residual | Epoch 39] Train NRMSE: 0.059419, Val NRMSE: 0.025274, Rel Val: 3.710752, time: 278.1s
+2026-02-05 12:49:11,307 | INFO | Val NRMSE (adv_beta0.4): 0.040696
+2026-02-05 12:50:54,406 | INFO | Val NRMSE (burgers_nu0.001): 0.057259
+2026-02-05 12:51:11,837 | INFO | Val NRMSE (diff_sorp): 0.045609
+2026-02-05 12:51:11,837 | INFO | [Stage residual | Epoch 40] Train NRMSE: 0.062773, Val NRMSE: 0.048304, Rel Val: 9.435152, time: 253.0s
+2026-02-05 12:51:11,837 | INFO | Stage joint: epochs=10 lr=0.000300
+2026-02-05 12:54:05,505 | INFO | Val NRMSE (adv_beta0.4): 0.016638
+2026-02-05 12:55:49,054 | INFO | Val NRMSE (burgers_nu0.001): 0.037182
+2026-02-05 12:56:06,571 | INFO | Val NRMSE (diff_sorp): 0.007272
+2026-02-05 12:56:06,572 | INFO | [Stage joint | Epoch 41] Train NRMSE: 0.054812, Val NRMSE: 0.022982, Rel Val: 2.076413, time: 294.7s
+2026-02-05 12:58:59,000 | INFO | Val NRMSE (adv_beta0.4): 0.017427
+2026-02-05 13:00:07,941 | INFO | Val NRMSE (burgers_nu0.001): 0.038533
+2026-02-05 13:00:59,746 | INFO | Val NRMSE (diff_sorp): 0.010216
+2026-02-05 13:00:59,746 | INFO | [Stage joint | Epoch 42] Train NRMSE: 0.054139, Val NRMSE: 0.024427, Rel Val: 2.604614, time: 293.1s
+2026-02-05 13:03:51,871 | INFO | Val NRMSE (adv_beta0.4): 0.011893
+2026-02-05 13:05:01,274 | INFO | Val NRMSE (burgers_nu0.001): 0.035579
+2026-02-05 13:05:52,512 | INFO | Val NRMSE (diff_sorp): 0.011907
+2026-02-05 13:05:52,513 | INFO | [Stage joint | Epoch 43] Train NRMSE: 0.053766, Val NRMSE: 0.021370, Rel Val: 2.677390, time: 292.8s
+2026-02-05 13:08:10,840 | INFO | Val NRMSE (adv_beta0.4): 0.014257
+2026-02-05 13:09:53,715 | INFO | Val NRMSE (burgers_nu0.001): 0.034734
+2026-02-05 13:10:11,229 | INFO | Val NRMSE (diff_sorp): 0.003010
+2026-02-05 13:10:11,229 | INFO | [Stage joint | Epoch 44] Train NRMSE: 0.051767, Val NRMSE: 0.020198, Rel Val: 1.266316, time: 258.7s
+2026-02-05 13:13:04,792 | INFO | Val NRMSE (adv_beta0.4): 0.013450
+2026-02-05 13:14:48,405 | INFO | Val NRMSE (burgers_nu0.001): 0.035079
+2026-02-05 13:15:05,918 | INFO | Val NRMSE (diff_sorp): 0.010252
+2026-02-05 13:15:05,919 | INFO | [Stage joint | Epoch 45] Train NRMSE: 0.052244, Val NRMSE: 0.021462, Rel Val: 2.449249, time: 294.6s
+2026-02-05 13:17:58,551 | INFO | Val NRMSE (adv_beta0.4): 0.011598
+2026-02-05 13:19:08,033 | INFO | Val NRMSE (burgers_nu0.001): 0.035348
+2026-02-05 13:19:59,582 | INFO | Val NRMSE (diff_sorp): 0.015839
+2026-02-05 13:19:59,582 | INFO | [Stage joint | Epoch 46] Train NRMSE: 0.052269, Val NRMSE: 0.021946, Rel Val: 3.321047, time: 293.7s
+2026-02-05 13:22:19,151 | INFO | Val NRMSE (adv_beta0.4): 0.019449
+2026-02-05 13:22:54,509 | INFO | Val NRMSE (burgers_nu0.001): 0.035901
+2026-02-05 13:23:11,891 | INFO | Val NRMSE (diff_sorp): 0.019560
+2026-02-05 13:23:11,892 | INFO | [Stage joint | Epoch 47] Train NRMSE: 0.053860, Val NRMSE: 0.026052, Rel Val: 4.207528, time: 192.3s
+2026-02-05 13:26:03,036 | INFO | Val NRMSE (adv_beta0.4): 0.016022
+2026-02-05 13:27:12,003 | INFO | Val NRMSE (burgers_nu0.001): 0.035652
+2026-02-05 13:28:03,286 | INFO | Val NRMSE (diff_sorp): 0.006544
+2026-02-05 13:28:03,287 | INFO | [Stage joint | Epoch 48] Train NRMSE: 0.052798, Val NRMSE: 0.021979, Rel Val: 1.921928, time: 291.4s
+2026-02-05 13:30:57,038 | INFO | Val NRMSE (adv_beta0.4): 0.018063
+2026-02-05 13:32:06,209 | INFO | Val NRMSE (burgers_nu0.001): 0.033741
+2026-02-05 13:32:57,667 | INFO | Val NRMSE (diff_sorp): 0.013948
+2026-02-05 13:32:57,668 | INFO | [Stage joint | Epoch 49] Train NRMSE: 0.053051, Val NRMSE: 0.023511, Rel Val: 3.207906, time: 294.4s
+2026-02-05 13:35:16,046 | INFO | Val NRMSE (adv_beta0.4): 0.013617
+2026-02-05 13:36:57,721 | INFO | Val NRMSE (burgers_nu0.001): 0.034907
+2026-02-05 13:37:48,688 | INFO | Val NRMSE (diff_sorp): 0.007207
+2026-02-05 13:37:48,689 | INFO | [Stage joint | Epoch 50] Train NRMSE: 0.051639, Val NRMSE: 0.020851, Rel Val: 1.945932, time: 291.0s
+2026-02-05 13:37:50,828 | INFO | Composite training complete. Model saved to: outputs/primitive_20260205_110416/primitive_model.pt
+2026-02-05 13:38:12,086 | INFO | Log file: /home/lgz/workspace/MVP/outputs/primitive_20260205_110416/run.log
+2026-02-05 13:40:13,766 | INFO | [ID] One-step NRMSE avg: 0.019999
+2026-02-05 13:40:13,767 | INFO | [ID] One-step NRMSE adv_beta0.4: 0.013927
+2026-02-05 13:40:13,767 | INFO | [ID] One-step NRMSE burgers_nu0.001: 0.034560
+2026-02-05 13:40:13,767 | INFO | [ID] One-step NRMSE diff_sorp: 0.003023
+2026-02-05 13:41:38,293 | INFO | [OOD_PARAM] One-step NRMSE avg: 0.417978
+2026-02-05 13:41:38,293 | INFO | [OOD_PARAM] One-step NRMSE adv_beta1.0: 0.437249
+2026-02-05 13:41:38,293 | INFO | [OOD_PARAM] One-step NRMSE burgers_nu1: 0.398706
+2026-02-05 13:43:20,279 | INFO | [OOD_EQUATION] One-step NRMSE avg: 0.477414
+2026-02-05 13:43:20,280 | INFO | [OOD_EQUATION] One-step NRMSE reacdiff_rho1: 0.248967
+2026-02-05 13:43:20,280 | INFO | [OOD_EQUATION] One-step NRMSE reacdiff_rho5: 0.200622
+2026-02-05 13:43:20,280 | INFO | [OOD_EQUATION] One-step NRMSE reacdiff_rho10: 0.982652
+2026-02-05 13:43:20,280 | INFO | Evaluation complete. Plots in /home/lgz/workspace/MVP/outputs/primitive_20260205_110416/plots/eval

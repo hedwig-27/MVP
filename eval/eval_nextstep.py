@@ -1,16 +1,17 @@
-import argparse
-import inspect
-import json
 import sys
 from pathlib import Path
-
-import torch
-import yaml
-from utils import get_progress
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+import argparse
+import inspect
+import json
+
+import torch
+import yaml
+from utils import get_progress
 
 from dataloader.multi_loader import build_eval_loaders
 from utils import setup_logger

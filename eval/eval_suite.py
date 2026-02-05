@@ -1,7 +1,12 @@
-import argparse
-import json
 import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+import argparse
+import json
 
 import matplotlib
 import torch
@@ -11,10 +16,6 @@ from utils import get_progress
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 
 from dataloader.multi_loader import build_eval_loaders
 from utils import log_config, setup_logger

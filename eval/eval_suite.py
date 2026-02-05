@@ -102,61 +102,6 @@ def _eval_onestep(model, loaders, device, use_dataset_id=True):
     return results, avg_loss, usage_counts
 
 
-def _eval_rollout(model, loaders, device, steps, sample_idx, use_dataset_id=True):
-    curves = {}
-    max_steps_all = 0
-    for name, loader, _, _ in loaders:
-        dataset = loader.dataset
-        dataset_id = None
-        pde_params = None
-        equation = None
-        if use_dataset_id and hasattr(dataset, "dataset_id"):
-            dataset_id = torch.tensor([dataset.dataset_id], device=device, dtype=torch.long)
-        if hasattr(dataset, "params") and dataset.params is not None:
-            pde_params = dataset.params.to(device).float().unsqueeze(0)
-        if hasattr(dataset, "equation") and dataset.equation is not None:
-            equation = dataset.equation.to(device).float().unsqueeze(0)
-        seq = dataset.get_sequence(sample_idx)
-        T = seq.shape[0]
-        C = seq.shape[2]
-        init_state = seq[0]
-        init_tensor = torch.from_numpy(init_state.astype("float32")).unsqueeze(0).to(device)
-        if dataset.include_grid:
-            grid = torch.from_numpy(dataset.xcoord.astype("float32")).unsqueeze(0).unsqueeze(-1)
-            grid = grid.to(init_tensor.device)
-            init_tensor = torch.cat([init_tensor, grid], dim=-1)
-
-        max_steps = min(steps, T - 1)
-        max_steps_all = max(max_steps_all, max_steps)
-        errors = []
-        pred = init_tensor
-        for step in tqdm(range(1, max_steps + 1), desc=f"Rollout {name}", leave=False):
-            with torch.no_grad():
-                pred = _call_model(
-                    model,
-                    pred,
-                    pde_params=pde_params,
-                    dataset_id=dataset_id,
-                    equation=equation,
-                    sparse_primitives=True,
-                )
-                if dataset.include_grid:
-                    pred = torch.cat([pred, grid], dim=-1)
-            gt = torch.from_numpy(seq[step].astype("float32")).unsqueeze(0).to(pred.device)
-            pred_field = pred[..., :C]
-            errors.append(_nrmse(pred_field, gt).item())
-        curves[name] = errors
-
-    avg_curve = []
-    for step_idx in range(max_steps_all):
-        vals = []
-        for series in curves.values():
-            if step_idx < len(series):
-                vals.append(series[step_idx])
-        avg_curve.append(sum(vals) / max(len(vals), 1))
-    return curves, avg_curve
-
-
 def _plot_onestep(results, avg, out_path, title):
     if not results:
         return
@@ -170,35 +115,6 @@ def _plot_onestep(results, avg, out_path, title):
     plt.ylabel("NRMSE")
     plt.title(title)
     plt.legend()
-    plt.tight_layout()
-    plt.savefig(out_path)
-    plt.close()
-
-
-def _plot_rollout(curves, avg_curve, out_path, title):
-    if not curves:
-        return
-    steps = list(range(1, len(avg_curve) + 1))
-    # Average curve + bar@20
-    plt.figure(figsize=(7, 6))
-    plt.subplot(2, 1, 1)
-    plt.plot(steps, avg_curve, marker="o", label="avg")
-    plt.xlabel("Step")
-    plt.ylabel("NRMSE")
-    plt.title(f"{title} (avg curve)")
-    plt.legend()
-
-    plt.subplot(2, 1, 2)
-    names = list(curves.keys())
-    vals = []
-    for name in names:
-        series = curves[name]
-        vals.append(series[min(19, len(series) - 1)] if series else 0.0)
-    x = range(len(names))
-    plt.bar(x, vals)
-    plt.xticks(x, names, rotation=30, ha="right")
-    plt.ylabel("NRMSE@20")
-    plt.title("Rollout@20 by dataset")
     plt.tight_layout()
     plt.savefig(out_path)
     plt.close()
@@ -256,11 +172,9 @@ def _unpack_batch(batch, device):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Evaluate ID/OOD one-step and rollout")
+    parser = argparse.ArgumentParser(description="Evaluate ID/OOD one-step")
     parser.add_argument("--config", type=str, required=True, help="Path to YAML config")
     parser.add_argument("--model", type=str, default=None, help="Path to model checkpoint (.pt)")
-    parser.add_argument("--steps", type=int, default=20, help="Rollout steps")
-    parser.add_argument("--sample_idx", type=int, default=0, help="Sequence index for rollout")
     args = parser.parse_args()
 
     with open(args.config, "r") as f:
@@ -305,9 +219,6 @@ def main():
 
         use_dataset_id = split == "id"
         one_step, one_avg, usage_counts = _eval_onestep(model, loaders, device, use_dataset_id=use_dataset_id)
-        curves, avg_curve = _eval_rollout(
-            model, loaders, device, args.steps, args.sample_idx, use_dataset_id=use_dataset_id
-        )
 
         if usage_counts is not None:
             all_usage = usage_counts if all_usage is None else all_usage + usage_counts
@@ -315,31 +226,16 @@ def main():
         metrics = {
             "one_step": one_step,
             "one_step_avg": one_avg,
-            "rollout_curves": curves,
-            "rollout_avg_curve": avg_curve,
         }
         with open(plot_root / f"eval_metrics_{split}.json", "w") as f:
             json.dump(metrics, f, indent=2)
         _plot_onestep(
             one_step, one_avg, plot_root / f"eval_onestep_{split}.png", f"One-step NRMSE ({split})"
         )
-        _plot_rollout(
-            curves, avg_curve, plot_root / f"eval_rollout_{split}.png", f"Rollout NRMSE ({split})"
-        )
 
         logger.info("[%s] One-step NRMSE avg: %.6f", split.upper(), one_avg)
         for name, val in one_step.items():
             logger.info("[%s] One-step NRMSE %s: %.6f", split.upper(), name, val)
-
-        rollout_20 = {}
-        for name, series in curves.items():
-            if series:
-                rollout_20[name] = series[min(19, len(series) - 1)]
-        if avg_curve:
-            logger.info("[%s] Rollout NRMSE@20 avg: %.6f", split.upper(), avg_curve[min(19, len(avg_curve) - 1)])
-        for name, val in rollout_20.items():
-            logger.info("[%s] Rollout NRMSE@20 %s: %.6f", split.upper(), name, val)
-
 
     if all_usage is not None:
         with open(plot_root / "router_usage.json", "w") as f:

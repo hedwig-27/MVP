@@ -1,4 +1,5 @@
 import json
+import math
 import sys
 import time
 from pathlib import Path
@@ -118,6 +119,40 @@ def _save_training_plots(run_dir, train_history, val_history, val_by_dataset):
         plt.close()
 
 
+def _relative_metric(curr_vals, best_vals, freeze=False):
+    if not curr_vals:
+        return float("inf")
+    rels = []
+    for name, val in curr_vals.items():
+        best = best_vals.get(name, float("inf"))
+        if not math.isfinite(best):
+            rel = 1.0
+        else:
+            denom = max(best, 1e-8)
+            rel = float(val) / denom
+        rels.append(rel)
+        if not freeze and val < best:
+            best_vals[name] = val
+    return sum(rels) / max(len(rels), 1)
+
+
+def _init_best_by_dataset(names, overrides):
+    best = {name: float("inf") for name in names}
+    if not overrides:
+        return best
+    for name, val in overrides.items():
+        if name not in best:
+            continue
+        try:
+            v = float(val)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(v) or v <= 0:
+            continue
+        best[name] = v
+    return best
+
+
 def _unpack_batch(batch, device, return_meta=False):
     if len(batch) >= 4 and isinstance(batch[2], dict):
         x, y, cond, meta = batch[0], batch[1], batch[2], batch[3]
@@ -166,23 +201,6 @@ def _load_balance_loss(weights, num_primitives, ignore_index=None):
     return torch.sum((mean_w - target) ** 2)
 
 
-def _build_dataset_map(train_loader):
-    if hasattr(train_loader, "streams"):
-        return {s.dataset_id: s.loader.dataset.dataset for s in train_loader.streams}
-    dataset = train_loader.dataset
-    if hasattr(dataset, "dataset"):
-        dataset = dataset.dataset
-    return {0: dataset}
-
-
-def _read_future_state(dataset, sample_id, t_idx, device):
-    f = dataset._get_file()
-    abs_t = dataset.t_indices[t_idx]
-    arr = dataset._read_frame(f, sample_id, abs_t)
-    m, s = dataset.stats["mean"], dataset.stats["std"]
-    arr = (arr - m) / s
-    return torch.from_numpy(arr).to(device).float()
-
 
 def main(config_path):
     with open(config_path, "r") as f:
@@ -200,8 +218,6 @@ def main(config_path):
 
     data_conf = config["data"]
     train_loader, val_loaders, test_loaders, dataset_specs = build_loaders(data_conf)
-    dataset_map = _build_dataset_map(train_loader)
-
     for spec in dataset_specs:
         logger.info(
             "Dataset[%d] %s params=%s train_pairs=%d val_pairs=%d test_pairs=%d weight=%s",
@@ -472,12 +488,12 @@ def main(config_path):
 
     model = model.cuda() if torch.cuda.is_available() else model
 
-    include_grid = getattr(sample_ds, "include_grid", False)
     device = next(model.parameters()).device
 
     if model_type == "composite":
         output_model = run_dir / Path(config["training"]["output_model"]).name
         best_val_loss = float("inf")
+        best_rel_metric = float("inf")
         train_history = []
         val_history = []
         val_by_dataset = {}
@@ -485,6 +501,9 @@ def main(config_path):
             if loader is None:
                 continue
             val_by_dataset[name] = []
+        best_overrides = train_conf.get("best_val_by_dataset", {})
+        freeze_best = bool(train_conf.get("freeze_best_val_by_dataset", False))
+        best_val_by_dataset = _init_best_by_dataset(val_by_dataset.keys(), best_overrides)
 
         train_conf = config["training"]
         lr = float(train_conf.get("learning_rate", 1e-3))
@@ -498,7 +517,6 @@ def main(config_path):
         dataset_id_dropout = float(train_conf.get("dataset_id_dropout", 0.0))
         load_balance_weight = float(train_conf.get("load_balance_weight", 0.0))
         term_align_weight = float(train_conf.get("term_align_weight", 0.0))
-        # composite training uses one-step loss (rollout handled in eval)
 
         stages = []
         if base_epochs > 0 and (residual_epochs > 0 or joint_epochs > 0):
@@ -588,6 +606,7 @@ def main(config_path):
 
                 # validation
                 val_loss = 0.0
+                curr_val_by_dataset = {}
                 if val_loaders:
                     model.eval()
                     with torch.no_grad():
@@ -612,6 +631,7 @@ def main(config_path):
                                 ds_loss += loss.item()
                                 val_pbar.set_postfix(loss=loss.item())
                             ds_loss /= max(len(loader), 1)
+                            curr_val_by_dataset[name] = ds_loss
                             logger.info("Val NRMSE (%s): %.6f", name, ds_loss)
                             if name in val_by_dataset:
                                 val_by_dataset[name].append(ds_loss)
@@ -621,13 +641,17 @@ def main(config_path):
                             val_loss /= total_batches
                 else:
                     val_loss = train_loss
+                rel_metric = _relative_metric(
+                    curr_val_by_dataset, best_val_by_dataset, freeze=freeze_best
+                ) if curr_val_by_dataset else val_loss
 
                 logger.info(
-                    "[Stage %s | Epoch %d] Train NRMSE: %.6f, Val NRMSE: %.6f, time: %.1fs",
+                    "[Stage %s | Epoch %d] Train NRMSE: %.6f, Val NRMSE: %.6f, Rel Val: %.6f, time: %.1fs",
                     stage_name,
                     global_epoch,
                     train_loss,
                     val_loss,
+                    rel_metric,
                     time.perf_counter() - epoch_start,
                 )
                 train_history.append(train_loss)
@@ -635,8 +659,8 @@ def main(config_path):
 
                 has_aux = bool(model.term_library is not None or (model.residual_experts and model.router))
                 track_best = (not has_aux) or use_terms or use_residual
-                if track_best and val_loss < best_val_loss:
-                    best_val_loss = val_loss
+                if track_best and rel_metric < best_rel_metric:
+                    best_rel_metric = rel_metric
                     torch.save(model, output_model)
 
         _save_training_plots(run_dir, train_history, val_history, val_by_dataset)
@@ -658,6 +682,7 @@ def main(config_path):
 
     output_model = run_dir / Path(config["training"]["output_model"]).name
     best_val_loss = float("inf")
+    best_rel_metric = float("inf")
     train_history = []
     val_history = []
     val_by_dataset = {}
@@ -665,12 +690,10 @@ def main(config_path):
         if loader is None:
             continue
         val_by_dataset[name] = []
+    best_overrides = config.get("training", {}).get("best_val_by_dataset", {})
+    freeze_best = bool(config.get("training", {}).get("freeze_best_val_by_dataset", False))
+    best_val_by_dataset = _init_best_by_dataset(val_by_dataset.keys(), best_overrides)
 
-    rollout_steps = max(1, int(config["training"].get("rollout_steps", 1)))
-    rollout_gamma = float(config["training"].get("rollout_gamma", 1.0))
-    ss_conf = config["training"].get("scheduled_sampling", {})
-    ss_start = float(ss_conf.get("start", 0.0))
-    ss_end = float(ss_conf.get("end", 0.0))
     load_balance_weight = float(config["training"].get("load_balance_weight", 0.0))
     sparse_primitives = bool(config["training"].get("sparse_primitives", True))
     warmup_epochs = int(config["training"].get("topk_warmup_epochs", 0))
@@ -685,112 +708,50 @@ def main(config_path):
             router.top_k = router.num_primitives if epoch <= warmup_epochs else base_top_k
         model.train()
         train_loss = 0.0
-        if epochs > 1:
-            ss_prob = ss_start + (ss_end - ss_start) * (epoch - 1) / (epochs - 1)
-        else:
-            ss_prob = ss_end
         train_pbar = tqdm(train_loader, desc=f"Train {epoch}/{epochs}", leave=False, **TQDM_KWARGS)
         for batch in train_pbar:
-            u_t, u_tp1, pde_params, dataset_id, equation, meta = _unpack_batch(
-                batch, device=device, return_meta=True
+            u_t, u_tp1, pde_params, dataset_id, equation = _unpack_batch(
+                batch, device=device, return_meta=False
             )
 
             opt.zero_grad()
-            grid = u_t[..., output_channels:] if include_grid else None
-            current_input = u_t
-            total_loss = 0.0
-            weight_sum = 0.0
-
-            sample_ids = None
-            t_idx = None
-            if meta and isinstance(meta, dict):
-                sample_ids = meta.get("sample_id")
-                t_idx = meta.get("t_idx")
-            if sample_ids is not None:
-                sample_ids = sample_ids.to("cpu")
-            if t_idx is not None:
-                t_idx = t_idx.to("cpu")
-
-            for step in range(1, rollout_steps + 1):
-                use_sparse = sparse_primitives and router.top_k < router.num_primitives
-                if diversity_weight > 0:
-                    pred, weights, _, delta_stack = model(
-                        current_input,
-                        pde_params=pde_params,
-                        dataset_id=dataset_id,
-                        equation=equation,
-                        return_weights=True,
-                        return_deltas=True,
-                        sparse_primitives=use_sparse,
-                    )
-                else:
-                    pred, weights, _ = model(
-                        current_input,
-                        pde_params=pde_params,
-                        dataset_id=dataset_id,
-                        equation=equation,
-                        return_weights=True,
-                        return_deltas=False,
-                        sparse_primitives=use_sparse,
-                    )
-                    delta_stack = None
-
-                if step == 1:
-                    gt = u_tp1
-                    valid = torch.ones(gt.size(0), dtype=torch.bool, device=device)
-                else:
-                    gt = pred.detach().clone()
-                    valid = torch.ones(gt.size(0), dtype=torch.bool, device=device)
-                    if sample_ids is not None and t_idx is not None and dataset_id is not None:
-                        for i in range(gt.size(0)):
-                            ds_id = int(dataset_id[i].item())
-                            ds = dataset_map.get(ds_id)
-                            if ds is None:
-                                valid[i] = False
-                                continue
-                            next_idx = int(t_idx[i].item()) + step
-                            if next_idx >= ds.timesteps:
-                                valid[i] = False
-                                continue
-                            gt[i] = _read_future_state(ds, int(sample_ids[i].item()), next_idx, device)
-
-                if valid.any():
-                    step_loss = criterion(pred[valid], gt[valid])
-                    step_weight = rollout_gamma ** (step - 1)
-                    total_loss = total_loss + step_weight * step_loss
-                    weight_sum = weight_sum + step_weight
-
-                if entropy_weight > 0:
-                    if weights.dim() == 3 and weights.size(1) == router.num_primitives:
-                        entropy = -(weights * torch.log(weights + 1e-8)).sum(dim=1).mean()
-                    else:
-                        entropy = -(weights * torch.log(weights + 1e-8)).sum(dim=-1).mean()
-                    total_loss = total_loss + entropy_weight * entropy
-                if diversity_weight > 0 and step == 1:
-                    diversity = _diversity_penalty(delta_stack)
-                    total_loss = total_loss + diversity_weight * diversity
-                if load_balance_weight > 0:
-                    total_loss = total_loss + load_balance_weight * _load_balance_loss(
-                        weights, router.num_primitives, ignore_index=always_on_index
-                    )
-
-                if step < rollout_steps:
-                    if ss_prob > 0:
-                        use_pred = torch.rand(pred.size(0), device=pred.device) < ss_prob
-                        mask = use_pred & valid
-                        mask = mask.view(-1, 1, 1)
-                        next_state = torch.where(mask, pred, gt.detach())
-                    else:
-                        next_state = gt.detach()
-                    if include_grid:
-                        current_input = torch.cat([next_state, grid], dim=-1)
-                    else:
-                        current_input = next_state
-
-            if weight_sum > 0:
-                loss = total_loss / weight_sum
+            use_sparse = sparse_primitives and router.top_k < router.num_primitives
+            if diversity_weight > 0:
+                pred, weights, _, delta_stack = model(
+                    u_t,
+                    pde_params=pde_params,
+                    dataset_id=dataset_id,
+                    equation=equation,
+                    return_weights=True,
+                    return_deltas=True,
+                    sparse_primitives=use_sparse,
+                )
             else:
-                loss = total_loss
+                pred, weights, _ = model(
+                    u_t,
+                    pde_params=pde_params,
+                    dataset_id=dataset_id,
+                    equation=equation,
+                    return_weights=True,
+                    return_deltas=False,
+                    sparse_primitives=use_sparse,
+                )
+                delta_stack = None
+
+            loss = criterion(pred, u_tp1)
+            if entropy_weight > 0:
+                if weights.dim() == 3 and weights.size(1) == router.num_primitives:
+                    entropy = -(weights * torch.log(weights + 1e-8)).sum(dim=1).mean()
+                else:
+                    entropy = -(weights * torch.log(weights + 1e-8)).sum(dim=-1).mean()
+                loss = loss + entropy_weight * entropy
+            if diversity_weight > 0:
+                diversity = _diversity_penalty(delta_stack)
+                loss = loss + diversity_weight * diversity
+            if load_balance_weight > 0:
+                loss = loss + load_balance_weight * _load_balance_loss(
+                    weights, router.num_primitives, ignore_index=always_on_index
+                )
 
             loss.backward()
             opt.step()
@@ -800,6 +761,7 @@ def main(config_path):
         train_loss /= len(train_loader)
 
         val_loss = 0.0
+        curr_val_by_dataset = {}
         if val_loaders:
             model.eval()
             with torch.no_grad():
@@ -822,6 +784,7 @@ def main(config_path):
                         ds_loss += loss.item()
                         val_pbar.set_postfix(loss=loss.item())
                     ds_loss /= max(len(loader), 1)
+                    curr_val_by_dataset[name] = ds_loss
                     logger.info("Val NRMSE (%s): %.6f", name, ds_loss)
                     if name in val_by_dataset:
                         val_by_dataset[name].append(ds_loss)
@@ -831,19 +794,23 @@ def main(config_path):
                     val_loss /= total_batches
         else:
             val_loss = train_loss
+        rel_metric = _relative_metric(
+            curr_val_by_dataset, best_val_by_dataset, freeze=freeze_best
+        ) if curr_val_by_dataset else val_loss
 
         logger.info(
-            "[Epoch %d] Train NRMSE: %.6f, Val NRMSE: %.6f, time: %.1fs",
+            "[Epoch %d] Train NRMSE: %.6f, Val NRMSE: %.6f, Rel Val: %.6f, time: %.1fs",
             epoch,
             train_loss,
             val_loss,
+            rel_metric,
             time.perf_counter() - epoch_start,
         )
         train_history.append(train_loss)
         val_history.append(val_loss)
 
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
+        if rel_metric < best_rel_metric:
+            best_rel_metric = rel_metric
             saved_top_k = router.top_k
             router.top_k = base_top_k
             torch.save(model, output_model)

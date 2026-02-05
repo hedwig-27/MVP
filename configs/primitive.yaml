@@ -128,5 +128,9 @@ training:
   dataset_id_dropout: 0.5
   term_align_weight: 0.1
   load_balance_weight: 0.01
-  rollout_steps: 1
+  freeze_best_val_by_dataset: true
+  best_val_by_dataset:
+    adv_beta0.4: 0.01
+    burgers_nu0.001: 0.04
+    diff_sorp: 0.002
   output_model: outputs/latest_primitive/primitive_model.pt

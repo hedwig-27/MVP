@@ -1,0 +1,17 @@
+base_config: configs/primitive.yaml
+output_dir: outputs/experiment_suites
+
+experiments:
+  - name: norm_global
+    overrides:
+      data:
+        normalize: true
+        global_normalize: true
+        append_stats_to_params: false
+
+  - name: norm_per_dataset
+    overrides:
+      data:
+        normalize: true
+        global_normalize: false
+        append_stats_to_params: false

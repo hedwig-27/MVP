@@ -7,7 +7,7 @@ import matplotlib
 import torch
 import torch.nn.functional as F
 import yaml
-from tqdm import tqdm
+from utils import get_progress
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -72,7 +72,7 @@ def _eval_onestep(model, loaders, device, use_dataset_id=True):
     with torch.no_grad():
         for name, loader, _, _ in loaders:
             ds_loss = 0.0
-            pbar = tqdm(loader, desc=f"One-step {name}", leave=False)
+            pbar = get_progress(loader, desc=f"One-step {name}", leave=False)
             for batch in pbar:
                 u_t, u_tp1, pde_params, dataset_id, equation = _unpack_batch(batch, device=device)
                 if not use_dataset_id:

@@ -1,4 +1,5 @@
 import logging
+import os
 import random
 import sys
 from datetime import datetime
@@ -7,6 +8,41 @@ from pathlib import Path
 import numpy as np
 import torch
 import yaml
+from tqdm import tqdm
+
+
+class _TqdmTtyFile:
+    def __init__(self, file_obj):
+        self._file = file_obj
+
+    def write(self, data):
+        return self._file.write(data)
+
+    def flush(self):
+        return self._file.flush()
+
+    def isatty(self):
+        return True
+
+
+def get_progress(iterable, *, desc="", total=None, leave=False):
+    disable = bool(os.environ.get("TQDM_DISABLE"))
+    force_tty = bool(os.environ.get("TQDM_FORCE_TTY"))
+    file_obj = _TqdmTtyFile(sys.stderr) if force_tty else sys.stderr
+    return tqdm(
+        iterable,
+        desc=desc,
+        total=total,
+        leave=leave,
+        file=file_obj,
+        ncols=80,
+        dynamic_ncols=False,
+        bar_format="{l_bar}{bar:10}{r_bar}",
+        mininterval=1.0,
+        miniters=10,
+        smoothing=0.0,
+        disable=disable,
+    )
 
 def set_seed(seed):
     random.seed(seed)

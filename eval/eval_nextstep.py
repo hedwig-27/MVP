@@ -6,7 +6,7 @@ from pathlib import Path
 
 import torch
 import yaml
-from tqdm import tqdm
+from utils import get_progress
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -103,7 +103,7 @@ def evaluate_model(model_path, data_conf, split, logger, run_dir):
             usage_counts = torch.zeros(total, dtype=torch.long)
         ds_loss = 0.0
         with torch.no_grad():
-            pbar = tqdm(loader, desc=f"Eval {name}", leave=False)
+            pbar = get_progress(loader, desc=f"Eval {name}", leave=False)
             for batch in pbar:
                 u_t, u_tp1, pde_params, dataset_id, equation = _unpack_batch(
                     batch, device=next(model.parameters()).device

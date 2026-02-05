@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -35,17 +36,25 @@ def run_and_log(cmd, cwd, log_path):
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("w", encoding="utf-8") as f:
         f.write(" ".join(cmd) + "\n\n")
+        env = dict(os.environ)
+        env.setdefault("TQDM_FORCE_TTY", "1")
         proc = subprocess.Popen(
             cmd,
             cwd=cwd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            bufsize=1,
+            env=env,
         )
         assert proc.stdout is not None
-        for line in proc.stdout:
-            sys.stdout.write(line)
-            f.write(line)
+        while True:
+            chunk = proc.stdout.read(256)
+            if not chunk:
+                break
+            sys.stdout.write(chunk)
+            sys.stdout.flush()
+            f.write(chunk)
         ret = proc.wait()
         if ret != 0:
             raise RuntimeError(f"Command failed with code {ret}: {' '.join(cmd)}")

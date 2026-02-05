@@ -9,7 +9,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import yaml
-from tqdm import tqdm
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -28,9 +27,7 @@ from models.primitive_composer import (
     TermLibrary,
 )
 from models.primitive_operator import PrimitiveOperator
-from utils import create_run_dir, set_latest_link, setup_logger
-
-TQDM_KWARGS = dict(ncols=80, dynamic_ncols=True, bar_format="{l_bar}{bar:10}{r_bar}")
+from utils import create_run_dir, get_progress, set_latest_link, setup_logger
 
 
 def _nrmse(pred, target, eps=1e-8):
@@ -546,7 +543,9 @@ def main(config_path):
                 epoch_start = time.perf_counter()
                 model.train()
                 train_loss = 0.0
-                train_pbar = tqdm(train_loader, desc=f"{stage_name} {global_epoch}", leave=False, **TQDM_KWARGS)
+                train_pbar = get_progress(
+                    train_loader, desc=f"{stage_name} {global_epoch}", leave=False
+                )
                 for batch in train_pbar:
                     u_t, u_tp1, pde_params, dataset_id, equation = _unpack_batch(
                         batch, device=device, return_meta=False
@@ -612,7 +611,9 @@ def main(config_path):
                         total_batches = 0
                         for name, loader, _, _ in val_loaders:
                             ds_loss = 0.0
-                            val_pbar = tqdm(loader, desc=f"Val {name} {global_epoch}", leave=False, **TQDM_KWARGS)
+                            val_pbar = get_progress(
+                                loader, desc=f"Val {name} {global_epoch}", leave=False
+                            )
                             for batch in val_pbar:
                                 u_t, u_tp1, pde_params, dataset_id, equation = _unpack_batch(
                                     batch, device=device
@@ -707,7 +708,7 @@ def main(config_path):
             router.top_k = router.num_primitives if epoch <= warmup_epochs else base_top_k
         model.train()
         train_loss = 0.0
-        train_pbar = tqdm(train_loader, desc=f"Train {epoch}/{epochs}", leave=False, **TQDM_KWARGS)
+        train_pbar = get_progress(train_loader, desc=f"Train {epoch}/{epochs}", leave=False)
         for batch in train_pbar:
             u_t, u_tp1, pde_params, dataset_id, equation = _unpack_batch(
                 batch, device=device, return_meta=False
@@ -767,7 +768,9 @@ def main(config_path):
                 total_batches = 0
                 for name, loader, _, _ in val_loaders:
                     ds_loss = 0.0
-                    val_pbar = tqdm(loader, desc=f"Val {name} {epoch}/{epochs}", leave=False, **TQDM_KWARGS)
+                    val_pbar = get_progress(
+                        loader, desc=f"Val {name} {epoch}/{epochs}", leave=False
+                    )
                     for batch in val_pbar:
                         u_t, u_tp1, pde_params, dataset_id, equation = _unpack_batch(
                             batch, device=next(model.parameters()).device

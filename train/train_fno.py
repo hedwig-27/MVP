@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import yaml
-from tqdm import tqdm
+from utils import get_progress
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -133,7 +133,7 @@ def main(config_path):
     for epoch in range(1, epochs+1):
         model.train()
         train_loss = 0.0
-        train_pbar = tqdm(train_loader, desc=f"Train {epoch}/{epochs}", leave=False)
+        train_pbar = get_progress(train_loader, desc=f"Train {epoch}/{epochs}", leave=False)
         for batch in train_pbar:
             u_t, u_tp1, _, _ = _unpack_batch(batch, device=next(model.parameters()).device)
             opt.zero_grad()
@@ -152,7 +152,7 @@ def main(config_path):
                 total_batches = 0
                 for name, loader, _, _ in val_loaders:
                     ds_loss = 0.0
-                    val_pbar = tqdm(loader, desc=f"Val {name} {epoch}/{epochs}", leave=False)
+                    val_pbar = get_progress(loader, desc=f"Val {name} {epoch}/{epochs}", leave=False)
                     for batch in val_pbar:
                         u_t, u_tp1, _, _ = _unpack_batch(
                             batch, device=next(model.parameters()).device

@@ -501,11 +501,10 @@ def main(config_path):
             if loader is None:
                 continue
             val_by_dataset[name] = []
+        train_conf = config["training"]
         best_overrides = train_conf.get("best_val_by_dataset", {})
         freeze_best = bool(train_conf.get("freeze_best_val_by_dataset", False))
         best_val_by_dataset = _init_best_by_dataset(val_by_dataset.keys(), best_overrides)
-
-        train_conf = config["training"]
         lr = float(train_conf.get("learning_rate", 1e-3))
         finetune_lr = float(train_conf.get("finetune_lr", lr * 0.3))
         base_epochs = int(train_conf.get("base_pretrain_epochs", 0))

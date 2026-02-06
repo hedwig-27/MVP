@@ -84,7 +84,7 @@ data:
       equation_text: '\partial_t u(t,x) = \frac{D}{R(u)} \partial_{xx} u(t,x), D=5\times10^{-4}'
       timesteps: 21
       time_downsample: 5
-      weight: 1.5
+      weight: 1.2
   eval_datasets:
     - name: adv_beta1.0
       path: datasets/1D_Advection_Sols_beta1.0.hdf5
@@ -130,11 +130,11 @@ training:
   term_align_warmup_epochs: 5
   load_balance_weight: 0.01
   load_balance_warmup_epochs: 5
-  router_entropy_weight: 0.01
+  router_entropy_weight: 0.005
   router_entropy_exclude_base: true
   loss_scale_by_best: true
   loss_scale_min: 0.5
-  loss_scale_max: 5.0
+  loss_scale_max: 3.0
   freeze_best_val_by_dataset: true
   best_val_by_dataset:
     adv_beta0.4: 0.01

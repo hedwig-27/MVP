@@ -84,6 +84,27 @@ def _term_align_loss(term_outputs, term_features, output_channels):
     return total / max(count, 1)
 
 
+def _entropy_penalty(weights, *, exclude_last=False, eps=1e-8):
+    if weights is None:
+        return 0.0
+    w = weights
+    if w.dim() == 3:
+        # average over spatial/channel dimension
+        w = w.mean(dim=1)
+    if w.dim() != 2:
+        return 0.0
+    if exclude_last and w.size(1) > 1:
+        w = w[:, :-1]
+    w = w.clamp_min(eps)
+    return -(w * torch.log(w)).sum(dim=-1).mean()
+
+
+def _warmup_scale(epoch_idx, warmup_epochs):
+    if warmup_epochs <= 0:
+        return 1.0
+    return min(1.0, float(epoch_idx) / float(warmup_epochs))
+
+
 def _save_training_plots(run_dir, train_history, val_history, val_by_dataset):
     plot_dir = run_dir / "plots" / "training"
     plot_dir.mkdir(parents=True, exist_ok=True)
@@ -499,6 +520,9 @@ def main(config_path):
                 continue
             val_by_dataset[name] = []
         train_conf = config["training"]
+        entropy_weight = float(train_conf.get("router_entropy_weight", 0.0))
+        entropy_exclude_base = bool(train_conf.get("router_entropy_exclude_base", True))
+        topk_conf = train_conf.get("top_k_schedule")
         best_overrides = train_conf.get("best_val_by_dataset", {})
         freeze_best = bool(train_conf.get("freeze_best_val_by_dataset", False))
         best_val_by_dataset = _init_best_by_dataset(val_by_dataset.keys(), best_overrides)
@@ -513,6 +537,8 @@ def main(config_path):
         dataset_id_dropout = float(train_conf.get("dataset_id_dropout", 0.0))
         load_balance_weight = float(train_conf.get("load_balance_weight", 0.0))
         term_align_weight = float(train_conf.get("term_align_weight", 0.0))
+        load_balance_warmup = int(train_conf.get("load_balance_warmup_epochs", 0))
+        term_align_warmup = int(train_conf.get("term_align_warmup_epochs", 0))
 
         stages = []
         if base_epochs > 0 and (residual_epochs > 0 or joint_epochs > 0):
@@ -540,6 +566,14 @@ def main(config_path):
             opt = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=stage_lr)
             for epoch in range(1, stage_epochs + 1):
                 global_epoch += 1
+                if topk_conf and hasattr(model.router, "top_k"):
+                    start_k = int(topk_conf.get("start", model.router.top_k))
+                    end_k = int(topk_conf.get("end", start_k))
+                    warm = int(topk_conf.get("warmup_epochs", 0))
+                    ratio = _warmup_scale(global_epoch, warm)
+                    k = int(round(start_k + (end_k - start_k) * ratio))
+                    k = max(1, min(k, getattr(model.router, "num_primitives", k)))
+                    model.router.top_k = k
                 epoch_start = time.perf_counter()
                 model.train()
                 train_loss = 0.0
@@ -589,9 +623,14 @@ def main(config_path):
 
                     loss = _nrmse(pred, u_tp1)
                     if term_align_weight > 0 and use_terms:
-                        loss = loss + term_align_weight * align_loss
+                        term_scale = _warmup_scale(global_epoch, term_align_warmup)
+                        loss = loss + (term_align_weight * term_scale) * align_loss
+                    if entropy_weight > 0 and weights is not None:
+                        entropy = _entropy_penalty(weights, exclude_last=False)
+                        loss = loss - entropy_weight * entropy
                     if load_balance_weight > 0 and weights is not None:
-                        loss = loss + load_balance_weight * _load_balance_loss(
+                        lb_scale = _warmup_scale(global_epoch, load_balance_warmup)
+                        loss = loss + (load_balance_weight * lb_scale) * _load_balance_loss(
                             weights, getattr(model.router, "num_primitives", weights.size(-1))
                         )
 

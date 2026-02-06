@@ -212,15 +212,24 @@ python eval/eval_suite.py --config configs/primitive.yaml --model outputs/latest
 
 ## 版本记录
 
+### 0206
+
+- 引入 Router 熵正则（抑制专家塌缩）与 top-k 动态调度（从 4 逐步收敛到 2）。
+- 对 term_align 与 load_balance 增加 warmup（避免早期约束过强）。
+- 配置已更新于 `configs/primitive.yaml`，等待新一轮训练结果。
+
 ### 0205
+- 删除所有 rollout 训练/评估相关流程与记录。
+- 保存最优模型改为基于相对历史最好值（可由配置固定，关闭自动更新）。
 
 - 输出对应 `outputs/primitive_20260205_110416`。
+- 归一化对照实验（自动套件）：
+  - norm_global（overall=0.178428，`outputs/primitive_20260205_210410`）
+  - norm_per_dataset（overall=0.564186，`outputs/primitive_20260205_232245`）
+  - 结论：保留 `global_normalize=true`。
 
 ### 0204
-
-- 相比 0203：删除所有 rollout 训练/评估相关流程与记录。
-- 保存最优模型改为基于相对历史最好值（可由配置固定，关闭自动更新）。
-- 输出对应 `outputs/primitive_20260204_100636`。
+- 回退到0203
 
 ### 0203
 

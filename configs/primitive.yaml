@@ -127,7 +127,15 @@ training:
   finetune_lr: 0.0003
   dataset_id_dropout: 0.5
   term_align_weight: 0.1
+  term_align_warmup_epochs: 5
   load_balance_weight: 0.01
+  load_balance_warmup_epochs: 5
+  router_entropy_weight: 0.01
+  router_entropy_exclude_base: true
+  top_k_schedule:
+    start: 4
+    end: 2
+    warmup_epochs: 5
   freeze_best_val_by_dataset: true
   best_val_by_dataset:
     adv_beta0.4: 0.01

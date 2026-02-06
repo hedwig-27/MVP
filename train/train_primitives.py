@@ -171,6 +171,66 @@ def _init_best_by_dataset(names, overrides):
     return best
 
 
+def _extract_dataset_id(dataset_id):
+    if dataset_id is None:
+        return None
+    if torch.is_tensor(dataset_id):
+        if dataset_id.numel() == 0:
+            return None
+        return int(dataset_id.view(-1)[0].item())
+    try:
+        return int(dataset_id)
+    except (TypeError, ValueError):
+        return None
+
+
+def _compute_loss_scales(dataset_specs, best_vals, min_scale=None, max_scale=None):
+    best_list = []
+    for spec in dataset_specs:
+        name = spec.get("name")
+        val = best_vals.get(name)
+        if val is None:
+            continue
+        try:
+            v = float(val)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(v) or v <= 0:
+            continue
+        best_list.append(v)
+    if not best_list:
+        return {}
+    mean_best = sum(best_list) / max(len(best_list), 1)
+    scales = {}
+    for spec in dataset_specs:
+        ds_id = int(spec.get("id", 0))
+        name = spec.get("name")
+        best = best_vals.get(name)
+        scale = 1.0
+        if best is not None:
+            try:
+                b = float(best)
+            except (TypeError, ValueError):
+                b = None
+            if b is not None and math.isfinite(b) and b > 0:
+                scale = mean_best / b
+        if min_scale is not None:
+            scale = max(float(min_scale), scale)
+        if max_scale is not None:
+            scale = min(float(max_scale), scale)
+        scales[ds_id] = float(scale)
+    return scales
+
+
+def _loss_scale_for_batch(dataset_id, loss_scales):
+    if not loss_scales:
+        return 1.0
+    ds_id = _extract_dataset_id(dataset_id)
+    if ds_id is None:
+        return 1.0
+    return float(loss_scales.get(ds_id, 1.0))
+
+
 def _unpack_batch(batch, device, return_meta=False):
     if len(batch) >= 4 and isinstance(batch[2], dict):
         x, y, cond, meta = batch[0], batch[1], batch[2], batch[3]
@@ -526,6 +586,16 @@ def main(config_path):
         best_overrides = train_conf.get("best_val_by_dataset", {})
         freeze_best = bool(train_conf.get("freeze_best_val_by_dataset", False))
         best_val_by_dataset = _init_best_by_dataset(val_by_dataset.keys(), best_overrides)
+        loss_scales = {}
+        if bool(train_conf.get("loss_scale_by_best", False)):
+            min_scale = train_conf.get("loss_scale_min", None)
+            max_scale = train_conf.get("loss_scale_max", None)
+            loss_scales = _compute_loss_scales(dataset_specs, best_val_by_dataset, min_scale, max_scale)
+            if loss_scales:
+                for spec in dataset_specs:
+                    ds_id = int(spec.get("id", 0))
+                    name = spec.get("name")
+                    logger.info("Loss scale (%s): %.4f", name, loss_scales.get(ds_id, 1.0))
         lr = float(train_conf.get("learning_rate", 1e-3))
         finetune_lr = float(train_conf.get("finetune_lr", lr * 0.3))
         base_epochs = int(train_conf.get("base_pretrain_epochs", 0))
@@ -584,6 +654,7 @@ def main(config_path):
                     u_t, u_tp1, pde_params, dataset_id, equation = _unpack_batch(
                         batch, device=device, return_meta=False
                     )
+                    batch_dataset_id = dataset_id
                     if dataset_id is not None and dataset_id_dropout > 0.0:
                         if torch.rand(1).item() < dataset_id_dropout:
                             dataset_id = None
@@ -621,7 +692,8 @@ def main(config_path):
                             use_residual=use_residual,
                         )
 
-                    loss = _nrmse(pred, u_tp1)
+                    data_loss = _nrmse(pred, u_tp1)
+                    loss = data_loss
                     if term_align_weight > 0 and use_terms:
                         term_scale = _warmup_scale(global_epoch, term_align_warmup)
                         loss = loss + (term_align_weight * term_scale) * align_loss
@@ -633,11 +705,14 @@ def main(config_path):
                         loss = loss + (load_balance_weight * lb_scale) * _load_balance_loss(
                             weights, getattr(model.router, "num_primitives", weights.size(-1))
                         )
+                    scale = _loss_scale_for_batch(batch_dataset_id, loss_scales)
+                    if scale != 1.0:
+                        loss = loss + (scale - 1.0) * data_loss
 
                     loss.backward()
                     opt.step()
-                    train_loss += loss.item()
-                    train_pbar.set_postfix(loss=loss.item())
+                    train_loss += data_loss.item()
+                    train_pbar.set_postfix(loss=data_loss.item())
 
                 train_loss /= max(len(train_loader), 1)
 
@@ -732,6 +807,16 @@ def main(config_path):
     best_overrides = config.get("training", {}).get("best_val_by_dataset", {})
     freeze_best = bool(config.get("training", {}).get("freeze_best_val_by_dataset", False))
     best_val_by_dataset = _init_best_by_dataset(val_by_dataset.keys(), best_overrides)
+    loss_scales = {}
+    if bool(config.get("training", {}).get("loss_scale_by_best", False)):
+        min_scale = config.get("training", {}).get("loss_scale_min", None)
+        max_scale = config.get("training", {}).get("loss_scale_max", None)
+        loss_scales = _compute_loss_scales(dataset_specs, best_val_by_dataset, min_scale, max_scale)
+        if loss_scales:
+            for spec in dataset_specs:
+                ds_id = int(spec.get("id", 0))
+                name = spec.get("name")
+                logger.info("Loss scale (%s): %.4f", name, loss_scales.get(ds_id, 1.0))
 
     load_balance_weight = float(config["training"].get("load_balance_weight", 0.0))
     sparse_primitives = bool(config["training"].get("sparse_primitives", True))
@@ -777,7 +862,8 @@ def main(config_path):
                 )
                 delta_stack = None
 
-            loss = criterion(pred, u_tp1)
+            data_loss = criterion(pred, u_tp1)
+            loss = data_loss
             if entropy_weight > 0:
                 if weights.dim() == 3 and weights.size(1) == router.num_primitives:
                     entropy = -(weights * torch.log(weights + 1e-8)).sum(dim=1).mean()
@@ -791,11 +877,14 @@ def main(config_path):
                 loss = loss + load_balance_weight * _load_balance_loss(
                     weights, router.num_primitives, ignore_index=always_on_index
                 )
+            scale = _loss_scale_for_batch(dataset_id, loss_scales)
+            if scale != 1.0:
+                loss = loss + (scale - 1.0) * data_loss
 
             loss.backward()
             opt.step()
-            train_loss += loss.item()
-            train_pbar.set_postfix(loss=loss.item())
+            train_loss += data_loss.item()
+            train_pbar.set_postfix(loss=data_loss.item())
 
         train_loss /= len(train_loader)
 

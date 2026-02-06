@@ -212,12 +212,14 @@ python eval/eval_suite.py --config configs/primitive.yaml --model outputs/latest
 
 ## 版本记录
 
+
 ### 0206
-
-- 引入 Router 熵正则（抑制专家塌缩）与 top-k 动态调度（从 4 逐步收敛到 2）。
-- 对 term_align 与 load_balance 增加 warmup（避免早期约束过强）。
+- 引入 Router 熵正则（抑制专家坍缩）。
+- 为 term_align 与 load_balance 增加 warmup（避免早期约束过强）。
+- 取消 top-k 动态调度，固定 `top_k=4`（训练/验证/评估保持一致）。
+- 训练 loss 使用相对于历史最优 `best_val_by_dataset` 的缩放，并加 `loss_scale_min/max` 限制，平衡不同数据集尺度。
+- 提高 diff_sorp 采样权重到 1.5。
 - 配置已更新于 `configs/primitive.yaml`，等待新一轮训练结果。
-
 ### 0205
 - 删除所有 rollout 训练/评估相关流程与记录。
 - 保存最优模型改为基于相对历史最好值（可由配置固定，关闭自动更新）。
